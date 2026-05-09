@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+output/
+data/cache/
+data/*.xlsx
+*.zip
+*.docx
+.claude/

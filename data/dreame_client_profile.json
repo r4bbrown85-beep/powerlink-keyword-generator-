@@ -1,0 +1,378 @@
+{
+  "client": "드리미코리아",
+  "monthly_budget": 500000,
+  "sales_channels": [
+    "네이버 스마트스토어",
+    "브랜드스토어"
+  ],
+  "brand_urls": [
+    "https://brand.naver.com/dreame"
+  ],
+  "campaign_goal": "구매전환",
+  "brands": [
+    {
+      "brand_name": "드리미 포켓",
+      "brand_key": "pocket",
+      "category": "헤어드라이기",
+      "products": [
+        "드리미 포켓",
+        "드리미포켓드라이기",
+        "포켓드라이기"
+      ],
+      "brand_variants": [
+        "드리미드라이기",
+        "드리미드라이어",
+        "드리미헤어드라이기",
+        "드리미헤어드라이어",
+        "dreame pocket",
+        "dreame드라이기"
+      ],
+      "typo_variants": [
+        "드리미 포겟",
+        "드리미포겟"
+      ],
+      "competitors": [
+        "다이슨 슈퍼소닉",
+        "다이슨",
+        "JMW",
+        "파나소닉",
+        "필립스"
+      ],
+      "must_keywords": [
+        {
+          "keyword": "드리미 포켓",
+          "target_rank": 3,
+          "device": "BOTH"
+        },
+        {
+          "keyword": "드리미 헤어드라이기",
+          "target_rank": 3,
+          "device": "BOTH"
+        },
+        {
+          "keyword": "드리미드라이기",
+          "target_rank": 3,
+          "device": "BOTH"
+        }
+      ],
+      "general_keyword_themes": [
+        "헤어드라이기 핵심 (드라이기, 드라이어, 헤어드라이기, 헤어드라이어)",
+        "용도별 (휴대용드라이기, 여행용드라이기, 접이식드라이기, 초고속드라이기)",
+        "구매의도 (드라이기추천, 헤어드라이기추천, 드라이기순위, 헤어드라이기순위)",
+        "특성별 (저소음드라이기, 음이온드라이기, 전문가용드라이기, 미용실드라이기)"
+      ],
+      "keyword_categories": [
+        {
+          "name": "브랜드 키워드",
+          "type": "brand",
+          "priority": 1.3,
+          "min_keywords": 5,
+          "target_rank": 3,
+          "max_rank": 5,
+          "max_single_ratio": 0.15,
+          "cpc_factor": 1.0,
+          "color": "BDD7EE"
+        },
+        {
+          "name": "일반 키워드",
+          "type": "general",
+          "priority": 1.3,
+          "min_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.2,
+          "cpc_factor": 1.0,
+          "color": "FFF2CC"
+        },
+        {
+          "name": "경쟁사 키워드",
+          "type": "competitor",
+          "priority": 0.88,
+          "min_keywords": 0,
+          "max_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.04,
+          "cpc_factor": 0.9,
+          "color": "FCE4D6",
+          "max_budget_ratio": 0.1
+        }
+      ],
+      "exclude_keywords": [
+        "침대청소기",
+        "청소기렌탈",
+        "공기청정기",
+        "로봇청소기",
+        "물걸레청소기"
+      ]
+    },
+    {
+      "brand_name": "드리미 H16",
+      "brand_key": "h16",
+      "category": "물걸레청소기",
+      "products": [
+        "드리미 H16",
+        "드리미H16",
+        "드리미 물걸레청소기"
+      ],
+      "brand_variants": [
+        "드리미H16",
+        "dreame H16",
+        "드리미물걸레청소기",
+        "드리미물청소기"
+      ],
+      "typo_variants": [
+        "드리미 에이치16",
+        "드리미h16"
+      ],
+      "competitors": [
+        "LG 코드제로 물걸레",
+        "삼성 물걸레청소기",
+        "다이슨 물걸레",
+        "틴즈",
+        "비쎌"
+      ],
+      "must_keywords": [
+        {
+          "keyword": "드리미 H16",
+          "target_rank": 3,
+          "device": "BOTH"
+        },
+        {
+          "keyword": "드리미 물걸레청소기",
+          "target_rank": 3,
+          "device": "BOTH"
+        }
+      ],
+      "general_keyword_themes": [
+        "물걸레청소기 핵심 (물걸레청소기, 무선물걸레청소기, 전동물걸레청소기)",
+        "용도별 (물걸레진공청소기, 스팀물걸레청소기, 물걸레바닥청소기)",
+        "구매의도 (물걸레청소기추천, 물걸레청소기순위, 물걸레청소기비교)",
+        "기능별 (자동세척물걸레청소기, 온수물걸레청소기, 물걸레청소기건조)"
+      ],
+      "keyword_categories": [
+        {
+          "name": "브랜드 키워드",
+          "type": "brand",
+          "priority": 1.3,
+          "min_keywords": 5,
+          "target_rank": 3,
+          "max_rank": 5,
+          "max_single_ratio": 0.15,
+          "cpc_factor": 1.0,
+          "color": "BDD7EE"
+        },
+        {
+          "name": "일반 키워드",
+          "type": "general",
+          "priority": 1.3,
+          "min_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.2,
+          "cpc_factor": 1.0,
+          "color": "FFF2CC"
+        },
+        {
+          "name": "경쟁사 키워드",
+          "type": "competitor",
+          "priority": 0.88,
+          "min_keywords": 0,
+          "max_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.04,
+          "cpc_factor": 0.9,
+          "color": "FCE4D6",
+          "max_budget_ratio": 0.1
+        }
+      ],
+      "exclude_keywords": [
+        "헤어드라이기",
+        "드라이기",
+        "드라이어",
+        "공기청정기",
+        "침대청소기"
+      ]
+    },
+    {
+      "brand_name": "드리미 L30s Pro Ultra Heat",
+      "brand_key": "l30s",
+      "category": "로봇청소기",
+      "products": [
+        "드리미 L30s",
+        "드리미L30s",
+        "드리미 로봇청소기"
+      ],
+      "brand_variants": [
+        "드리미L30s",
+        "dreame L30s",
+        "드리미로봇청소기",
+        "드리미청소기"
+      ],
+      "typo_variants": [
+        "드리미 엘30s",
+        "드리미l30s"
+      ],
+      "competitors": [
+        "로보락",
+        "에코백스",
+        "나르왈",
+        "삼성 비스포크 로봇청소기",
+        "LG 로보킹",
+        "다이슨"
+      ],
+      "must_keywords": [
+        {
+          "keyword": "드리미 L30s",
+          "target_rank": 3,
+          "device": "BOTH"
+        },
+        {
+          "keyword": "드리미 로봇청소기",
+          "target_rank": 3,
+          "device": "BOTH"
+        }
+      ],
+      "general_keyword_themes": [
+        "로봇청소기 핵심 (로봇청소기, 로봇진공청소기, 로봇물걸레청소기)",
+        "올인원 (물걸레로봇청소기, 올인원로봇청소기, 자동세척로봇청소기)",
+        "구매의도 (로봇청소기추천, 로봇청소기순위, 로봇청소기비교)",
+        "기능별 (로봇청소기자동비움, 직배수로봇청소기, 물걸레건조로봇청소기)"
+      ],
+      "keyword_categories": [
+        {
+          "name": "브랜드 키워드",
+          "type": "brand",
+          "priority": 1.3,
+          "min_keywords": 5,
+          "target_rank": 3,
+          "max_rank": 5,
+          "max_single_ratio": 0.15,
+          "cpc_factor": 1.0,
+          "color": "BDD7EE"
+        },
+        {
+          "name": "일반 키워드",
+          "type": "general",
+          "priority": 1.3,
+          "min_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.2,
+          "cpc_factor": 1.0,
+          "color": "FFF2CC"
+        },
+        {
+          "name": "경쟁사 키워드",
+          "type": "competitor",
+          "priority": 0.88,
+          "min_keywords": 0,
+          "max_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.04,
+          "cpc_factor": 0.9,
+          "color": "FCE4D6",
+          "max_budget_ratio": 0.1
+        }
+      ],
+      "exclude_keywords": [
+        "헤어드라이기",
+        "드라이기",
+        "드라이어",
+        "공기청정기"
+      ]
+    },
+    {
+      "brand_name": "드리미 V10S",
+      "brand_key": "v10s",
+      "category": "무선청소기",
+      "products": [
+        "드리미 V10S",
+        "드리미V10S",
+        "드리미 무선청소기"
+      ],
+      "brand_variants": [
+        "드리미V10S",
+        "dreame V10S",
+        "드리미무선청소기",
+        "드리미스틱청소기"
+      ],
+      "typo_variants": [
+        "드리미 브이10s",
+        "드리미v10s"
+      ],
+      "competitors": [
+        "다이슨 무선청소기",
+        "LG 코드제로",
+        "삼성 제트",
+        "샤오미 무선청소기",
+        "다이슨"
+      ],
+      "must_keywords": [
+        {
+          "keyword": "드리미 V10S",
+          "target_rank": 3,
+          "device": "BOTH"
+        },
+        {
+          "keyword": "드리미 무선청소기",
+          "target_rank": 3,
+          "device": "BOTH"
+        }
+      ],
+      "general_keyword_themes": [
+        "무선청소기 핵심 (무선청소기, 스틱청소기, 무선진공청소기, 핸디청소기)",
+        "구매의도 (무선청소기추천, 무선청소기순위, 스틱청소기추천)",
+        "특성별 (경량무선청소기, 강력흡입무선청소기, 무선청소기배터리)",
+        "용도별 (가정용무선청소기, 반려동물무선청소기, 침대청소기)"
+      ],
+      "keyword_categories": [
+        {
+          "name": "브랜드 키워드",
+          "type": "brand",
+          "priority": 1.3,
+          "min_keywords": 5,
+          "target_rank": 3,
+          "max_rank": 5,
+          "max_single_ratio": 0.15,
+          "cpc_factor": 1.0,
+          "color": "BDD7EE"
+        },
+        {
+          "name": "일반 키워드",
+          "type": "general",
+          "priority": 1.3,
+          "min_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.2,
+          "cpc_factor": 1.0,
+          "color": "FFF2CC"
+        },
+        {
+          "name": "경쟁사 키워드",
+          "type": "competitor",
+          "priority": 0.88,
+          "min_keywords": 0,
+          "max_keywords": 15,
+          "target_rank": 5,
+          "max_rank": 5,
+          "max_single_ratio": 0.04,
+          "cpc_factor": 0.9,
+          "color": "FCE4D6",
+          "max_budget_ratio": 0.1
+        }
+      ],
+      "exclude_keywords": [
+        "헤어드라이기",
+        "드라이기",
+        "드라이어",
+        "공기청정기",
+        "침대청소기",
+        "청소기렌탈"
+      ]
+    }
+  ]
+}

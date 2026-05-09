@@ -1,0 +1,293 @@
+# -*- coding: utf-8 -*-
+"""
+naver_estimate.py  (2026-04-10 최종)
+
+로직 확정:
+  1. performance/keyword (98개 bid 커브) → 클릭 포화점 = 1위
+  2. average-position-bid/keyword → 2~5위 순위별 bid 획득
+  3. 커브에서 해당 bid의 노출/클릭/비용 lookup → 순위별 성과
+
+에이스퀘어와 동일한 값 산출 (검증 완료 2026-04-10)
+"""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import re
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+
+import requests
+
+BASE_URL   = "https://api.searchad.naver.com"
+CACHE_DIR  = Path("data/cache/estimate")
+CACHE_DAYS = 7
+
+# 로그스케일 98개 bid (70원 ~ 100,000원, 10원 단위)
+_lo, _hi, _n = 70, 100000, 100
+SCAN_BIDS = sorted(set(
+    int(round(_lo * (_hi / _lo) ** (i / (_n - 1)) / 10) * 10)
+    for i in range(_n)
+))
+SCAN_BIDS[0] = 70
+
+
+# ── 캐시 ──────────────────────────────────────────────────────────────────────
+
+def _cache_path(keyword: str, suffix: str) -> Path:
+    safe = re.sub(r'[\\/:*?"<>|]', "_", keyword)
+    return CACHE_DIR / f"{safe}_{suffix}.json"
+
+def _load_cache(path: Path, days: int = CACHE_DAYS):
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            c = json.load(f)
+        if datetime.now() - datetime.fromisoformat(c["cached_at"]) > timedelta(days=days):
+            return None
+        return c["data"]
+    except Exception:
+        return None
+
+def _save_cache(path: Path, data):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"cached_at": datetime.now().isoformat(), "data": data},
+                      f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# ── 공통 API 호출 ─────────────────────────────────────────────────────────────
+
+def _normalize(keyword: str) -> str:
+    return re.sub(r"\s+", "", str(keyword).strip())
+
+def _headers(api_key: str, secret: str, customer_id: str, uri: str) -> dict:
+    ts  = str(int(time.time() * 1000))
+    sig = base64.b64encode(
+        hmac.new(secret.encode(), f"{ts}.POST.{uri}".encode(), hashlib.sha256).digest()
+    ).decode()
+    return {
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Timestamp": ts, "X-API-KEY": api_key,
+        "X-Customer": str(customer_id), "X-Signature": sig,
+    }
+
+def _post(uri: str, payload: dict, api_key: str, secret: str, customer_id: str):
+    try:
+        resp = requests.post(
+            f"{BASE_URL}{uri}",
+            headers=_headers(api_key, secret, customer_id, uri),
+            json=payload, timeout=60
+        )
+        return resp.json() if resp.ok else None
+    except Exception:
+        return None
+
+
+# ── API 1: performance/keyword 커브 ───────────────────────────────────────────
+
+def _get_curve(keyword: str, device: str,
+               api_key: str, secret: str, customer_id: str) -> list:
+    """
+    커브 반환 [{bid, impressions, clicks, cost}, ...] (캐시 포함)
+    device: "PC" or "MOBILE"
+    """
+    api_kw = _normalize(keyword)
+    path = _cache_path(api_kw, f"{device}_curve")
+    cached = _load_cache(path)
+    if cached is not None:
+        return cached
+
+    result = _post(
+        "/estimate/performance/keyword",
+        {"device": device, "key": api_kw, "bids": SCAN_BIDS},
+        api_key, secret, customer_id
+    )
+    if not result:
+        return []
+
+    curve = sorted(
+        [{"bid": int(e["bid"]), "impressions": int(e.get("impressions", 0)),
+          "clicks": int(e.get("clicks", 0)), "cost": int(e.get("cost", 0))}
+         for e in result.get("estimate", [])],
+        key=lambda x: x["bid"]
+    )
+    _save_cache(path, curve)
+    return curve
+
+
+# ── API 2: average-position-bid/keyword ───────────────────────────────────────
+
+def _get_avg_position_bids(keyword: str, device: str, ranks: list,
+                            api_key: str, secret: str, customer_id: str) -> dict:
+    """
+    순위별 평균 입찰가 반환 {rank: bid} (캐시 포함)
+    """
+    api_kw = _normalize(keyword)
+    path = _cache_path(api_kw, f"{device}_avgbid")
+    cached = _load_cache(path)
+    if cached is not None:
+        return {int(k): v for k, v in cached.items()}
+
+    result = _post(
+        "/estimate/average-position-bid/keyword",
+        {"device": device, "items": [{"key": api_kw, "position": r} for r in ranks]},
+        api_key, secret, customer_id
+    )
+    if not result:
+        return {}
+
+    rank_bids = {int(e["position"]): int(e["bid"])
+                 for e in result.get("estimate", []) if e.get("bid")}
+    _save_cache(path, rank_bids)
+    return rank_bids
+
+
+# ── 커브에서 bid lookup ────────────────────────────────────────────────────────
+
+def _lookup_curve(curve: list, bid: int) -> dict:
+    """커브에서 bid에 가장 가까운 entry 반환"""
+    if not curve:
+        return {}
+    return min(curve, key=lambda x: abs(x["bid"] - bid))
+
+
+# ── 핵심: 순위별 성과 추출 ────────────────────────────────────────────────────
+
+def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_id: str,
+                              target_ranks: list = None,
+                              kt_pc_impr: int = None, kt_mo_impr: int = None) -> dict:
+    """
+    순위별 예상 노출/클릭/입찰가/비용 반환.
+
+    1위: performance/keyword 커브 클릭 포화점
+    2~5위: average-position-bid bid를 커브에서 lookup
+
+    반환: {"PC": {1: {bid,impressions,clicks,cost,cpc,ctr}, ...}, "MO": {...}}
+    """
+    if target_ranks is None:
+        target_ranks = [1, 2, 3, 4, 5]
+
+    lower_ranks = [r for r in target_ranks if r > 1]
+    results = {"PC": {}, "MO": {}}
+
+    for device, api_device in [("PC", "PC"), ("MO", "MOBILE")]:
+        # 커브 조회
+        curve = _get_curve(keyword, api_device, api_key, secret, customer_id)
+        time.sleep(0.15)
+        if not curve:
+            print(f"    [{keyword}][{device}] 커브 데이터 없음")
+            continue
+
+        # 1위: 클릭 포화점
+        active = [e for e in curve if e["impressions"] > 0]
+        if not active:
+            continue
+        max_clicks = max(e["clicks"] for e in active)
+        sat = next((e for e in active if e["clicks"] == max_clicks), None)
+
+        if 1 in target_ranks and sat:
+            results[device][1] = {
+                "bid":         sat["bid"],
+                "impressions": sat["impressions"],
+                "clicks":      sat["clicks"],
+                "cost":        sat["cost"],
+                "cpc":         round(sat["cost"] / sat["clicks"]) if sat["clicks"] > 0 else sat["bid"],
+                "ctr":         round(sat["clicks"] / sat["impressions"], 4) if sat["impressions"] > 0 else 0,
+                "click_ratio": round(sat["clicks"] / sat["impressions"], 4) if sat["impressions"] > 0 else 0,
+            }
+
+        # 2~5위: average-position-bid bid로 정확한 성과 조회
+        if lower_ranks:
+            avg_bids = _get_avg_position_bids(keyword, api_device, lower_ranks,
+                                               api_key, secret, customer_id)
+            time.sleep(0.15)
+
+            # 커브에 없는 bid는 추가 호출로 정확한 값 확보
+            curve_bid_set = {e["bid"] for e in curve}
+            missing_bids  = [b for b in avg_bids.values() if b not in curve_bid_set]
+            if missing_bids:
+                extra = _post(
+                    "/estimate/performance/keyword",
+                    {"device": api_device, "key": _normalize(keyword),
+                     "bids": missing_bids},
+                    api_key, secret, customer_id
+                )
+                if extra:
+                    for e in extra.get("estimate", []):
+                        curve.append({
+                            "bid":         int(e["bid"]),
+                            "impressions": int(e.get("impressions", 0)),
+                            "clicks":      int(e.get("clicks", 0)),
+                            "cost":        int(e.get("cost", 0)),
+                        })
+                    curve.sort(key=lambda x: x["bid"])
+
+            curve_map = {e["bid"]: e for e in curve}
+
+            for rank in lower_ranks:
+                bid = avg_bids.get(rank)
+                if not bid:
+                    continue
+                entry = curve_map.get(bid) or _lookup_curve(curve, bid)
+                if not entry:
+                    continue
+                clicks = entry["clicks"]
+                impr   = entry["impressions"]
+                cost   = entry["cost"]
+                results[device][rank] = {
+                    "bid":         bid,
+                    "impressions": impr,
+                    "clicks":      clicks,
+                    "cost":        cost,
+                    "cpc":         round(cost / clicks) if clicks > 0 else bid,
+                    "ctr":         round(clicks / impr, 4) if impr > 0 else 0,
+                    "click_ratio": round(clicks / impr, 4) if impr > 0 else 0,
+                }
+
+        r1 = results[device].get(1, {})
+        print(f"    [{keyword}][{device}] 1위: bid={r1.get('bid',0):,}원 / 클릭={r1.get('clicks',0):,}")
+
+    return results
+
+
+def get_rank_based_estimates_cached(keyword: str, api_key: str, secret: str, customer_id: str,
+                                     target_ranks: list = None,
+                                     kt_pc_impr: int = None, kt_mo_impr: int = None,
+                                     cache_days: int = CACHE_DAYS) -> dict:
+    """순위별 Estimate 결과 (결과 캐시 포함)."""
+    path = _cache_path(_normalize(keyword), "rank_estimates")
+    cached = _load_cache(path, cache_days)
+    if cached is not None:
+        return cached
+    data = get_rank_based_estimates(keyword, api_key, secret, customer_id,
+                                     target_ranks, kt_pc_impr, kt_mo_impr)
+    _save_cache(path, data)
+    return data
+
+
+def get_estimate_performance(keyword: str, bids: list,
+                              api_key: str, secret: str, customer_id: str) -> list:
+    """기존 호환용: bid별 PC+MO 통합 성과 반환."""
+    api_kw = _normalize(keyword)
+    pc = {e["bid"]: e for e in _get_curve(api_kw, "PC",     api_key, secret, customer_id)}
+    mo = {e["bid"]: e for e in _get_curve(api_kw, "MOBILE", api_key, secret, customer_id)}
+    results = []
+    for bid in sorted(set(bids)):
+        p = pc.get(bid, {"impressions":0,"clicks":0,"cost":0})
+        m = mo.get(bid, {"impressions":0,"clicks":0,"cost":0})
+        results.append({
+            "bid": bid,
+            "pc_impressions": p["impressions"], "pc_clicks": p["clicks"], "pc_cost": p["cost"],
+            "mo_impressions": m["impressions"], "mo_clicks": m["clicks"], "mo_cost": m["cost"],
+            "impressions": p["impressions"]+m["impressions"],
+            "clicks":      p["clicks"]+m["clicks"],
+            "cost":        p["cost"]+m["cost"],
+        })
+    return results

@@ -1,0 +1,70 @@
+"""
+네이버S 1위 클릭수 vs Estimate API 클릭수 직접 비교
+실행: python verify_estimate_vs_navers.py
+"""
+import os, sys, time
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+sys.path.insert(0, str(Path(__file__).parent))
+
+from modules.naver_estimate_api import get_performance_bulk
+
+# 네이버스에서 가져온 순위별 입찰가 + 클릭수
+# (keyword, rank, ns_pc_bid, ns_pc_clicks, ns_mo_bid, ns_mo_clicks)
+NAVERS_DATA = [
+    ("로봇청소기",    1,  7230,  626,  7680, 3380),
+    ("로봇청소기",    2,  6030,  603,  6340, 2740),
+    ("로봇청소기",    3,  4940,  417,  5060, 1718),
+    ("무선청소기",    1,  2950,  494,  5320, 1408),
+    ("헤어드라이기",  1, 12280,  110,  6790,  402),
+    ("스팀청소기",    1,  2780,  339,  3970,  460),
+    ("물걸레청소기",  1,  3110,   87,  3830,  478),
+]
+
+print("=" * 80)
+print("Estimate API vs 네이버S 클릭수 비교")
+print("=" * 80)
+print(f"{'키워드':12s} {'순위':3s} | {'[NS]PC클릭':>10s} | {'[API]PC클릭':>11s} | {'일치':4s} | {'[NS]MO클릭':>10s} | {'[API]MO클릭':>11s} | {'일치':4s}")
+print("-" * 80)
+
+for kw, rank, pc_bid, ns_pc_clk, mo_bid, ns_mo_clk in NAVERS_DATA:
+    # PC
+    res_pc = get_performance_bulk(
+        items=[{"keyword": kw, "bid": pc_bid}],
+        device="PC"
+    )
+    # MO
+    res_mo = get_performance_bulk(
+        items=[{"keyword": kw, "bid": mo_bid}],
+        device="MOBILE"
+    )
+
+    # 결과 파싱
+    def parse_clicks(res):
+        try:
+            items = res['data'].get('items', [])
+            if items:
+                return items[0].get('clicks', -1)
+            # 다른 구조일 수도
+            return res['data'].get('clicks', -1)
+        except:
+            return -1
+
+    api_pc_clk = parse_clicks(res_pc)
+    api_mo_clk = parse_clicks(res_mo)
+
+    pc_ok = "✅" if abs(api_pc_clk - ns_pc_clk) <= 5 else "❌"
+    mo_ok = "✅" if abs(api_mo_clk - ns_mo_clk) <= 20 else "❌"
+
+    print(f"{kw:12s} {rank}위  | {ns_pc_clk:>10,} | {str(api_pc_clk):>11s} | {pc_ok:4s} | {ns_mo_clk:>10,} | {str(api_mo_clk):>11s} | {mo_ok:4s}")
+
+    time.sleep(0.3)
+
+print("=" * 80)
+print()
+print("=== API 응답 원본 (로봇청소기 1위 PC) ===")
+res = get_performance_bulk(items=[{"keyword": "로봇청소기", "bid": 7230}], device="PC")
+import json
+print(json.dumps(res['data'], ensure_ascii=False, indent=2))
