@@ -35,24 +35,33 @@ st.markdown("""
     max-width: 1100px !important;
 }
 
-/* ── 사이드바 ── */
+/* ── 사이드바 본체 ── */
 [data-testid="stSidebar"] {
     background: #0B1120 !important;
-    border-right: none !important;
+    border-right: 1px solid #1E293B !important;
+    min-width: 240px !important;
 }
-[data-testid="stSidebar"] * {
-    color: #94A3B8 !important;
-}
+[data-testid="stSidebar"] * { color: #94A3B8 !important; }
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] strong {
+[data-testid="stSidebar"] strong { color: #F1F5F9 !important; }
+[data-testid="stSidebar"] hr { border-color: #1E293B !important; }
+[data-testid="stSidebarNav"] { display: none !important; }
+
+/* ── 사이드바 토글 버튼 — 항상 잘 보이게 ── */
+[data-testid="collapsedControl"] {
+    background: #0B1120 !important;
+    border-right: 1px solid #1E293B !important;
+    color: #94A3B8 !important;
+}
+[data-testid="collapsedControl"]:hover {
+    background: #1E293B !important;
     color: #F1F5F9 !important;
 }
-[data-testid="stSidebar"] hr {
-    border-color: #1E293B !important;
-}
-[data-testid="stSidebarNav"] { display: none !important; }
+/* 접혔을 때 토글 화살표 */
+[data-testid="collapsedControl"] svg { fill: #64748B !important; }
+[data-testid="collapsedControl"]:hover svg { fill: #F1F5F9 !important; }
 
 /* ── 헤더 영역 ── */
 .pl-header {
