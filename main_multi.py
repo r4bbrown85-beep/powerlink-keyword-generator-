@@ -7,6 +7,7 @@ main_multi.py
 """
 import json
 import os
+import re
 import argparse
 from datetime import datetime
 from dotenv import load_dotenv
@@ -319,13 +320,32 @@ def build_relevance_filter(profile):
     return tokens
 
 
+_SHORT_ASCII_RE_CACHE: dict = {}
+
+def _word_boundary_match(token: str, text: str) -> bool:
+    """단어 경계 매칭 — 짧은 영문 토큰이 다른 단어 내부에 포함된 경우 제외.
+    예: 'gram' → 'grammar' 불일치, 'lg gram' 내의 'gram' 일치."""
+    if token not in _SHORT_ASCII_RE_CACHE:
+        _SHORT_ASCII_RE_CACHE[token] = re.compile(
+            rf'(?<![a-z]){re.escape(token)}(?![a-z])'
+        )
+    return bool(_SHORT_ASCII_RE_CACHE[token].search(text))
+
+
 def is_relevant_keyword(keyword, relevance_tokens, profile):
     kw_lower    = str(keyword).strip().lower()
     kw_no_space = kw_lower.replace(" ", "")
-    return any(
-        token and (token in kw_lower or token in kw_no_space)
-        for token in relevance_tokens
-    )
+    for token in relevance_tokens:
+        if not token:
+            continue
+        # 짧은 순수 영문 토큰(≤5자)은 단어 경계 매칭 — 'gram' ≠ 'grammar'
+        if len(token) <= 5 and token.isascii() and token.isalpha():
+            if _word_boundary_match(token, kw_lower) or _word_boundary_match(token, kw_no_space):
+                return True
+        else:
+            if token in kw_lower or token in kw_no_space:
+                return True
+    return False
 
 
 def filter_unrelated_keywords(rows, profile):
