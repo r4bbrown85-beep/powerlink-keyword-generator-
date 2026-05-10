@@ -53,6 +53,8 @@ _SNS_CATEGORY_HINTS = frozenset(["소셜미디어", "sns", "인플루언서", "s
 # 구매 의도 없는 범용 부정 패턴
 _NEGATIVE_INTENT_PATTERNS = [
     "폐기", "버리는법", "처분방법", "재활용방법", "공짜", "무료로 받",
+    "주가", "주식", "채용", "취업", "공채", "입사지원", "합병",
+    "as of", "investor",
 ]
 
 # AI 키워드 캐시 설정
@@ -227,75 +229,101 @@ def generate_ai_keyword_plan(profile):
             must_kw_list.append(str(m))
     must_kw_list = [k for k in must_kw_list if k]
 
+    products_str    = ", ".join(products) if products else f"{category} 관련 제품"
+    competitors_str = ", ".join(competitors) if competitors else "카테고리 내 주요 경쟁 브랜드"
+    korean_str      = ", ".join(korean_names) if korean_names else "없음"
+    themes_str      = chr(10).join(f"  * {t}" for t in general_themes) if general_themes else f"  * {category} 추천, {category} 가격, {category} 비교, {category} 후기"
+
     prompt = f"""
 너는 10년 경력의 한국 네이버 검색광고 전문 키워드 플래너다.
-아래 브랜드 정체성 문서를 완전히 이해한 뒤, 이 브랜드에 맞는 키워드만 생성하라.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【브랜드 정체성 - 반드시 숙지】
+【캠페인 광고 대상 — 이 원칙이 모든 것보다 우선한다】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+광고주 브랜드: {brand}
+이 캠페인이 홍보하는 제품: {products_str}
+카테고리: {category}
+
+⚠️ 이 캠페인은 오직 위의 제품({products_str})만 홍보한다.
+⚠️ {brand}가 다른 제품군도 보유하더라도, 위 제품과 무관한 모든 키워드는 절대 생성 금지.
+⚠️ 예) LG전자 노트북 캠페인 → 정수기·퓨리케어·냉장고·세탁기·TV·에어컨 등 일절 금지
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【브랜드 정체성 — 반드시 숙지】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {identity_stmt}
 {cat_context}
 
-이 브랜드가 아닌 것: {not_this_brand}
+이 브랜드·캠페인이 아닌 것: {not_this_brand}
 
-브랜드명: {brand}
-한글 표기: {korean_names if korean_names else "없음"}
-카테고리: {category}
-제품/모델: {products if products else "카테고리 기반 추정"}
-경쟁사: {competitors if competitors else "카테고리 기반 추정"}
-필수 포함: {must_kw_list if must_kw_list else "없음"}
-키워드 테마: {general_themes if general_themes else "카테고리 기반 생성"}
+브랜드명: {brand} | 한글 표기: {korean_str}
+제품/모델: {products_str}
+경쟁사: {competitors_str}
+필수 포함: {", ".join(must_kw_list) if must_kw_list else "없음"}
 광고 목표: {campaign_goal}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 【카테고리별 키워드 생성 지침】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【브랜드 키워드】 15~25개
-- 브랜드명({brand}) + 제품/카테고리 조합
-- 한글 표기({korean_names}) + 제품/카테고리 조합
-- 브랜드명 + 가격/후기/추천/구매/비교
-- 위에서 정의한 이 브랜드와 관련된 키워드만 생성
-- "이 브랜드가 아닌 것"에 해당하는 키워드는 절대 생성 금지
+【브랜드 키워드】 20~30개
+목적: 브랜드명을 알고 검색하는 사용자 포착
+- {brand} + {category} 조합 (예: {brand} {category}, {brand} {category} 추천)
+- {brand} + 가격/후기/추천/구매/비교/할인 조합
+- 한글 표기({korean_str}) + {category} 조합
+- 한글 표기 + 가격/후기/추천/구매/비교
+- {brand} + 공식사이트/쇼핑몰
+⚠️ 절대 금지: 주가, 주식, 채용, 취업, 공채, 입사, 지역명, 매장, 대리점
+⚠️ 절대 금지: 이 캠페인 제품({products_str})과 무관한 {brand}의 모든 다른 제품
 
-【상품 키워드】 15~25개
-- 브랜드명({brand}) 또는 한글표기({korean_names}) + 실제 제품/모델 조합
-- 브랜드명 + 용량 (예: ENB 1TB, ENB 2TB)
-- 브랜드명 + 가격/후기/추천/비교/구매
-⚠️ 절대 금지: 브랜드 정체성("이 브랜드가 아닌 것")에 해당하는 키워드
-⚠️ 절대 금지: enbridge, enby, ENBD, enbd 의학용어 등 다른 의미의 영문 조합
+【상품 키워드】 40~60개  ← 반드시 40개 이상 생성할 것
+목적: 특정 제품/모델을 찾는 구매 의향 높은 사용자 포착
+생성 기준:
+1. 브랜드명 + 제품명/모델명 조합: {products_str}의 각 모델을 활용
+2. 모델명 단독 키워드 (브랜드명 없이, 모델명이 잘 알려진 경우)
+3. 브랜드명 + 스펙 조합: 용량·크기·해상도·처리속도·인치·세대 등
+4. 브랜드명 + 용도 조합: 게임용·업무용·학생용·디자인용·영상편집용 등
+5. 브랜드명 + 가격/후기/추천/비교/구매/할인/이벤트 조합
+6. 브랜드명 + 특성 조합: 가성비·경량·고성능·방수·슬림·고속 등
+7. 제품명 표기 변형: 한글·영문·혼용 표기 모두 포함
+⚠️ 절대 금지: 이 캠페인 제품({products_str})과 무관한 {brand}의 다른 제품 일절 금지
 
 【일반 키워드】 40~60개
-- {category} 카테고리에서 실제 검색량이 많은 핵심 키워드를 반드시 포함
-- ⭐ 검색량 많은 핵심 키워드 우선: {category} 단독, {category} 추천, {category} 가격 등
-- 용량별 (예: 1TB, 2TB, 4TB, 500GB 등) 키워드 반드시 포함
-- 용도별 (예: 게임용, 영상편집, 맥북, 백업 등) 키워드 포함
-- 특성별 (예: 가성비, 대용량, 휴대용, 고속 등) 키워드 포함
-- 표기 변형 쌍 포함 (같은 제품의 다른 표현)
-- 브랜드명 없는 카테고리 순수 검색어 위주로 생성
-- 아래 테마 반드시 반영:
-{chr(10).join(f"  * {t}" for t in general_themes) if general_themes else f"  * {category} 추천, 가격, 비교, 후기"}
+목적: 브랜드 인지 전 카테고리로 검색하는 잠재 고객 포착
+- ⭐ 가장 중요: {category} 단독, {category} 추천, {category} 가격, {category} 비교, {category} 순위
+- 스펙별 조합: 다양한 용량·크기·인치·세대 + {category}
+- 용도별 조합: 게임용·사무용·학생용·디자인·영상편집 + {category}
+- 특성별 조합: 가성비·경량·고성능·방수·슬림 + {category}
+- 구매 상황별: 선물용·최신형·신제품 + {category}
+- 표기 변형: 한글/영문/혼용 표기 쌍 모두 포함
+- 테마 반드시 반영:
+{themes_str}
 
-【경쟁사 키워드】 10~15개
-- 입력된 경쟁사 브랜드명 + {category} 제품 관련 조합만
-- 경쟁사당 최대 2~3개
-⚠️ 절대 금지: 경쟁사 + 주가/주식/채용/합병 등 투자/금융 관련 키워드
+【경쟁사 키워드】 25~40개  ← 반드시 25개 이상 생성할 것
+목적: 경쟁 브랜드 검색자에게 노출하여 전환 유도
+경쟁사 목록: {competitors_str}
+- 각 경쟁사 + {category} 조합 (예: 삼성 노트북, 삼성 노트북 추천)
+- 각 경쟁사 + 모델명/라인업 조합
+- 각 경쟁사 + 가격/후기/추천/비교/구매/할인 조합
+- 각 경쟁사 + 스펙 조합
+- 경쟁사당 최소 4개 이상 생성 (경쟁사가 5개면 총 20개 이상)
+- 경쟁사가 부족하면 {category} 시장의 실제 주요 브랜드로 보완
+⚠️ 절대 금지: 경쟁사 + 주가/주식/채용/합병/투자/금융 관련 키워드
+⚠️ 절대 금지: 경쟁사 + {category}와 무관한 다른 제품군 키워드
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【절대 금지 — 반드시 준수】
+【절대 금지 — 위반 시 해당 키워드 전부 무효】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❌ "이 브랜드가 아닌 것"에 해당하는 키워드
-❌ SNS/소셜미디어 플랫폼: 인스타그램, 유튜브, 페이스북, 틱톡, 트위터 등
-   (소셜미디어 마케팅 툴 브랜드가 아닌 경우 완전 금지)
-❌ 브랜드명·제품명과 철자 일부가 겹치는 타 브랜드 이름
-   예) 제품에 "gram"이 포함돼도 Instagram·Grammarly·gramicci·gramsnap 생성 금지
-   예) 브랜드가 "ENB"라도 Enbridge·CJ ENM·ENBD 생성 금지
+❌ 이 캠페인 제품({products_str})과 무관한 키워드 (최우선)
+❌ 주가·주식·채용·취업·공채·입사지원·합병 관련 키워드
+❌ 지역명 + 브랜드 조합 (지역 매장/대리점/센터 류)
+❌ "이 브랜드·캠페인이 아닌 것"에 해당하는 키워드
+❌ SNS/소셜미디어: 인스타그램·유튜브·페이스북·틱톡·트위터 등 (SNS 툴 브랜드 제외)
+❌ 브랜드명·제품명 철자 일부만 겹치는 타 브랜드 이름
 ❌ {category}와 직접 관련 없는 타 업종·타 카테고리 키워드
-❌ 구매 의도 없는 키워드: 폐기, 처분, 버리는법, 재활용, 공짜, 무료로 받기 등
-❌ 정보 탐색성 키워드: 뜻, 의미, 영어로, 어원, 역사 등
-❌ 문장형 키워드
-❌ 주가/채용/합병/의학용어/금융 관련 키워드
+❌ 구매 의도 없는 키워드: 폐기·처분·버리는법·재활용·공짜·무료 등
+❌ 정보 탐색성 키워드: 뜻·의미·영어로·어원·역사 등
+❌ 문장 어미형 키워드 (~은, ~는, ~이다, ~있는, ~하는 등)
 ❌ 경쟁사 키워드를 브랜드/상품 카테고리에 포함
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -346,7 +374,7 @@ def generate_ai_keyword_plan(profile):
 
     # ── 2단계: AI 기반 관련성 검증 ──
     brand_identity = profile.get("brand_identity", {})
-    cleaned = _verify_keywords_by_ai(cleaned, brand, category, brand_identity)
+    cleaned = _verify_keywords_by_ai(cleaned, brand, category, brand_identity, products)
 
     result = {
         "selected_categories":   ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
@@ -361,7 +389,7 @@ def generate_ai_keyword_plan(profile):
 
 
 def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str,
-                            brand_identity: dict = None) -> dict:
+                            brand_identity: dict = None, products: list = None) -> dict:
     """
     브랜드 정체성 문서 기반으로 무관 키워드 제거.
     생성 단계와 동일한 컨텍스트를 사용해 일관성 확보.
@@ -378,36 +406,40 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
 
     print(f"    [검증] 총 {len(all_kws)}개 키워드 검증 중...")
 
-    # 브랜드 정체성 문서 컨텍스트
     identity_stmt  = brand_identity.get("identity_statement", f"{brand}은(는) {category} 브랜드입니다.") if brand_identity else f"{brand}은(는) {category} 브랜드입니다."
     not_this_brand = brand_identity.get("what_this_brand_is_not", "") if brand_identity else ""
     korean_names   = brand_identity.get("korean_names", []) if brand_identity else []
+    products_str   = ", ".join(products) if products else f"{category} 관련 제품"
 
     verify_prompt = f"""너는 네이버 검색광고 키워드 검증 전문가다.
-아래 브랜드 정체성을 완전히 이해하고, 이와 무관한 키워드를 제거하라.
+아래 캠페인 범위와 브랜드 정체성을 완전히 이해하고, 이와 무관한 키워드를 제거하라.
+
+━━━ 캠페인 광고 대상 (최우선) ━━━
+광고주: {brand}
+이 캠페인이 홍보하는 제품: {products_str}
+카테고리: {category}
+⚠️ 이 제품과 무관한 키워드는 무조건 제거
 
 ━━━ 브랜드 정체성 ━━━
 {identity_stmt}
-이 브랜드가 아닌 것: {not_this_brand if not_this_brand else "명시되지 않음"}
+이 브랜드·캠페인이 아닌 것: {not_this_brand if not_this_brand else "명시되지 않음"}
 브랜드 한글 표기: {korean_names if korean_names else "없음"}
 
 ━━━ 제거 기준 (의심스러우면 제거, 확실한 것만 유지) ━━━
-1. 위의 "이 브랜드가 아닌 것"에 해당하는 키워드
-2. {category}와 직접 관련이 없는 키워드 (간접적이거나 불분명한 경우도 제거)
-3. SNS/소셜미디어 플랫폼 이름 (인스타그램, 유튜브, 페이스북, 트위터, 틱톡 등)
-4. 주가/채용/합병/의학용어/금융 관련 키워드
-5. 브랜드명·제품명과 철자 일부만 일치하는 타 브랜드 이름
-   - 예) 브랜드가 ENB면: enbridge, enphase, CJ ENM 등 제거
-   - 예) 제품에 "gram"이 포함돼도: Instagram, Grammarly, gramicci, gramsnap 등 제거
-6. 브랜드 변형처럼 보이지만 실제로 다른 회사인 키워드
-7. 구매 의도 없는 키워드: 폐기, 처분, 버리는법, 공짜, 무료로 받기 등
-8. 이 브랜드 광고를 클릭할 가능성이 없는 검색 의도를 가진 키워드
+1. 이 캠페인 제품({products_str})과 무관한 키워드 — 최우선 제거 기준
+2. "이 브랜드·캠페인이 아닌 것"에 해당하는 키워드
+3. {category}와 직접 관련이 없는 키워드
+4. SNS/소셜미디어 플랫폼 이름 (인스타그램, 유튜브, 페이스북, 트위터, 틱톡 등)
+5. 주가·주식·채용·취업·합병·금융 관련 키워드
+6. 지역명 + 브랜드 조합 (지역 매장/대리점/센터 류)
+7. 브랜드명·제품명과 철자 일부만 일치하는 타 브랜드 이름
+8. 구매 의도 없는 키워드: 폐기·처분·버리는법·공짜·무료로 받기 등
 
 ━━━ 유지 기준 ━━━
-- 브랜드명({brand}) + {category} 관련 조합
+- 브랜드명({brand}) + {category}/{products_str} 관련 조합
 - 한글 표기({korean_names}) + 제품 관련 조합
 - {category} 카테고리 순수 검색 키워드
-- 입력된 경쟁사 + {category} 제품 관련 키워드
+- 경쟁사 + {category} 제품 관련 키워드
 
 키워드 목록:
 {chr(10).join(f"- {kw}" for kw in all_kws)}
@@ -422,13 +454,14 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
         content = _call_llm(
             system=(
                 "너는 네이버 검색광고 키워드 관련성 검증 전문가다. "
-                "카테고리와 직접 관련이 없거나 다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
+                "캠페인 광고 제품 범위 밖의 키워드, 카테고리와 직접 관련 없는 키워드, "
+                "다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
                 "의심스러운 키워드는 제거하는 방향으로 판단한다. "
                 "반드시 JSON만 출력한다."
             ),
             user=verify_prompt,
             temperature=0.0,
-            max_tokens=1024,
+            max_tokens=2048,
         )
         data = _safe_json_loads(content)
         remove_set = set(data.get("remove", []))
