@@ -17,7 +17,33 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _call_llm(system: str, user: str, temperature: float = 0.1, max_tokens: int = 1024) -> str:
+    """Claude 우선, ANTHROPIC_API_KEY 없으면 OpenAI(gpt-4o) 폴백."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        import anthropic as _anthropic
+        c = _anthropic.Anthropic(api_key=anthropic_key)
+        resp = c.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return resp.content[0].text
+    else:
+        resp = _openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=temperature,
+        )
+        return resp.choices[0].message.content
 
 
 def _strip_fence(text: str) -> str:
@@ -127,23 +153,18 @@ URL 추출 키워드: {url_kw_str}
 }}"""
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "너는 한국 네이버 검색광고 전문가다. "
-                        "브랜드 정체성 문서를 정확하게 작성한다. "
-                        "절대로 입력되지 않은 브랜드명/회사명을 생성하지 않는다. "
-                        "반드시 JSON만 출력한다."
-                    )
-                },
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,  # 낮은 temperature로 일관성 확보
+        raw = _call_llm(
+            system=(
+                "너는 한국 네이버 검색광고 전문가다. "
+                "브랜드 정체성 문서를 정확하게 작성한다. "
+                "절대로 입력되지 않은 브랜드명/회사명을 생성하지 않는다. "
+                "반드시 JSON만 출력한다."
+            ),
+            user=prompt,
+            temperature=0.1,
+            max_tokens=1024,
         )
-        content = _strip_fence(response.choices[0].message.content)
+        content = _strip_fence(raw)
         result  = json.loads(content)
         print(f"    [브랜드정의] {brand_name}: {result.get('identity_statement', '')}")
         return result

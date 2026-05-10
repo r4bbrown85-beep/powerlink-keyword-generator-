@@ -10,7 +10,36 @@ from openai import OpenAI
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+_openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int = 4096) -> str:
+    """
+    Claude 우선, ANTHROPIC_API_KEY 없으면 OpenAI(gpt-4o) 폴백.
+    호출 코드는 모델에 무관하게 동일하게 작성 가능.
+    """
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if anthropic_key:
+        import anthropic as _anthropic
+        c = _anthropic.Anthropic(api_key=anthropic_key)
+        resp = c.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return resp.content[0].text
+    else:
+        resp = _openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=temperature,
+        )
+        return resp.choices[0].message.content
 
 # SNS/소셜미디어 플랫폼 — 해당 브랜드가 SNS 툴이 아닌 경우 키워드로 부적절
 _SNS_PLATFORMS = frozenset([
@@ -289,24 +318,17 @@ def generate_ai_keyword_plan(profile):
 }}
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "너는 한국 네이버 검색광고 키워드 전문가다. "
-                    "주어진 브랜드/카테고리에 맞는 실제 검색 키워드만 생성한다. "
-                    "다른 업종의 키워드를 절대 포함하지 않는다. "
-                    "반드시 JSON만 출력한다. 마크다운 코드블록 없이 순수 JSON만."
-                )
-            },
-            {"role": "user", "content": prompt}
-        ],
+    content = _call_llm(
+        system=(
+            "너는 한국 네이버 검색광고 키워드 전문가다. "
+            "주어진 브랜드/카테고리에 맞는 실제 검색 키워드만 생성한다. "
+            "다른 업종의 키워드를 절대 포함하지 않는다. "
+            "반드시 JSON만 출력한다. 마크다운 코드블록 없이 순수 JSON만."
+        ),
+        user=prompt,
         temperature=0.2,
+        max_tokens=4096,
     )
-
-    content = response.choices[0].message.content
     data    = _safe_json_loads(content)
 
     selected_categories   = data.get("selected_categories", [])
@@ -397,24 +419,17 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
 """
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "너는 네이버 검색광고 키워드 관련성 검증 전문가다. "
-                        "카테고리와 직접 관련이 없거나 다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
-                        "의심스러운 키워드는 제거하는 방향으로 판단한다. "
-                        "반드시 JSON만 출력한다."
-                    )
-                },
-                {"role": "user", "content": verify_prompt}
-            ],
+        content = _call_llm(
+            system=(
+                "너는 네이버 검색광고 키워드 관련성 검증 전문가다. "
+                "카테고리와 직접 관련이 없거나 다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
+                "의심스러운 키워드는 제거하는 방향으로 판단한다. "
+                "반드시 JSON만 출력한다."
+            ),
+            user=verify_prompt,
             temperature=0.0,
+            max_tokens=1024,
         )
-
-        content = response.choices[0].message.content
         data = _safe_json_loads(content)
         remove_set = set(data.get("remove", []))
 
