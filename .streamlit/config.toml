@@ -1,0 +1,10 @@
+[theme]
+primaryColor      = "#1677FF"
+backgroundColor   = "#FFFFFF"
+secondaryBackgroundColor = "#F4F6FB"
+textColor         = "#111827"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap, sans-serif"
+
+[server]
+headless = true
+enableCORS = false
