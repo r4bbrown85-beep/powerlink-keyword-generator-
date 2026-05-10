@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from modules.ai_keyword_generator import generate_ai_keyword_plan
 from modules.naver_suggest import get_naver_suggestions
 from modules.google_suggest import get_google_suggestions
-from modules.keyword_filter import filter_ad_keywords
+from modules.keyword_filter import filter_ad_keywords, filter_rows_by_brand_context
 from modules.keyword_scorer import score_keywords
 from modules.keyword_type_classifier import classify_keyword_type
 from modules.recommendation_engine import build_recommended_keywords, calc_recommendation_score
@@ -631,10 +631,12 @@ def run_single_brand(brand_profile, brand_name):
     # 3. 자동완성 확장
     print("  [3] 자동완성 확장...")
     suggest_items = expand_with_suggest(ai_rows, brand_profile)
+    suggest_items = filter_rows_by_brand_context(suggest_items, brand_profile)
 
     # 3-2. 연관키워드 확장
     print("  [3-2] 연관키워드 확장...")
     related_items = expand_with_related_keywords(ai_rows, brand_profile)
+    related_items = filter_rows_by_brand_context(related_items, brand_profile)
 
     # 4. 병합 및 필터링
     print("  [4] 병합 및 필터링...")

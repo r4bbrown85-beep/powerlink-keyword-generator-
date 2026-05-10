@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-파워링크 SA 키워드 제안서 생성기 - Streamlit UI v2
+파워링크 SA 키워드 제안서 생성기 - Streamlit UI v3
 """
 import streamlit as st
 import pandas as pd
@@ -20,14 +20,208 @@ except Exception:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(
-    page_title="파워링크 키워드 제안서 생성기",
-    page_icon="🔍",
-    layout="wide"
+    page_title="파워링크 제안서 생성기",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
 )
 
-st.title("🔍 네이버 파워링크 키워드 제안서 생성기")
-st.markdown("광고주 정보를 입력하면 AI가 키워드를 자동으로 추천하고 제안서를 생성합니다.")
-st.divider()
+# ── 전문적 UI CSS ──────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* ── 기본 리셋 ── */
+#MainMenu, footer { visibility: hidden; }
+.stDeployButton { display: none; }
+.block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1100px; }
+
+/* ── 앱 헤더 ── */
+.app-header {
+    background: #0F1929;
+    color: white;
+    padding: 28px 32px;
+    border-radius: 10px;
+    margin-bottom: 36px;
+}
+.app-header-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    color: #4B9EFF;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+.app-header-title {
+    font-size: 26px;
+    font-weight: 800;
+    color: #FFFFFF;
+    margin: 0 0 6px;
+    line-height: 1.2;
+}
+.app-header-sub {
+    font-size: 13px;
+    color: #8FA3BF;
+    margin: 0;
+}
+
+/* ── 섹션 헤더 ── */
+.section-wrap { margin: 8px 0 20px; }
+.section-badge {
+    display: inline-block;
+    background: #0F1929;
+    color: #4B9EFF;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    padding: 3px 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+}
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #0F1929;
+    margin: 0 0 4px;
+}
+.section-desc {
+    font-size: 13px;
+    color: #64748B;
+    margin: 0;
+}
+
+/* ── 구분선 ── */
+hr { border-color: #E8ECF2 !important; margin: 28px 0 !important; }
+
+/* ── 버튼 ── */
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: #0F1929 !important;
+    color: white !important;
+    border: none !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.03em !important;
+    border-radius: 6px !important;
+    padding: 0.65rem 1.5rem !important;
+    font-size: 14px !important;
+}
+div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: #1A2E4A !important;
+}
+div[data-testid="stButton"] > button[kind="secondary"] {
+    border: 1px solid #CBD5E1 !important;
+    color: #374151 !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+}
+
+/* ── 다운로드 버튼 ── */
+div[data-testid="stDownloadButton"] > button {
+    background: #1A56DB !important;
+    color: white !important;
+    border: none !important;
+    font-weight: 700 !important;
+    border-radius: 6px !important;
+    padding: 0.65rem 1.5rem !important;
+    font-size: 14px !important;
+    letter-spacing: 0.02em !important;
+}
+div[data-testid="stDownloadButton"] > button:hover {
+    background: #1648C8 !important;
+}
+
+/* ── Expander ── */
+[data-testid="stExpander"] summary {
+    font-weight: 700 !important;
+    color: #0F1929 !important;
+    font-size: 14px !important;
+}
+[data-testid="stExpander"] {
+    border: 1px solid #E8ECF2 !important;
+    border-radius: 8px !important;
+    margin-bottom: 10px !important;
+}
+
+/* ── 탭 ── */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 4px;
+    border-bottom: 2px solid #E8ECF2;
+}
+.stTabs [data-baseweb="tab"] {
+    font-weight: 600 !important;
+    color: #64748B !important;
+    font-size: 13px !important;
+    padding: 8px 18px !important;
+    border-radius: 6px 6px 0 0 !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #0F1929 !important;
+    border-bottom: 2px solid #0F1929 !important;
+}
+
+/* ── 메트릭 카드 ── */
+.metric-card {
+    background: white;
+    border: 1px solid #E8ECF2;
+    border-radius: 10px;
+    padding: 20px 24px;
+    box-shadow: 0 1px 4px rgba(15,25,41,0.06);
+}
+.metric-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #94A3B8;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+.metric-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: #0F1929;
+    margin-bottom: 2px;
+}
+.metric-sub {
+    font-size: 12px;
+    color: #64748B;
+}
+
+/* ── 성공/오류 메시지 ── */
+[data-testid="stAlert"] {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+}
+
+/* ── Progress ── */
+[data-testid="stProgressBar"] > div {
+    background: #1A56DB !important;
+    border-radius: 4px !important;
+}
+
+/* ── Input labels ── */
+[data-testid="stWidgetLabel"] {
+    font-weight: 600 !important;
+    color: #374151 !important;
+    font-size: 13px !important;
+}
+
+/* ── 키워드 테이블 헤더 ── */
+.kw-table-header {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0F1929;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #E8ECF2;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── 앱 헤더 ──────────────────────────────────────────────────────
+st.markdown("""
+<div class="app-header">
+    <div class="app-header-eyebrow">Naver Powerlink · AI Keyword Planner</div>
+    <div class="app-header-title">파워링크 키워드 제안서 생성기</div>
+    <div class="app-header-sub">광고주 정보를 입력하면 AI가 키워드를 자동 추천하고 네이버 데이터 기반 제안서를 생성합니다</div>
+</div>
+""", unsafe_allow_html=True)
 
 # ── 세션 상태 초기화 ──────────────────────────────────────────────
 for key, default in [
@@ -36,14 +230,20 @@ for key, default in [
     ("excel_bytes", None),
     ("filename", ""),
     ("brands", [{}]),
-    ("custom_add_kws", {}),    # 브랜드별 추가 키워드
-    ("custom_exc_kws", {}),    # 브랜드별 제외 키워드
+    ("custom_add_kws", {}),
+    ("custom_exc_kws", {}),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
 
 # ── Step 1: 광고주 기본 정보 ──────────────────────────────────────
-st.subheader("📋 Step 1. 광고주 기본 정보")
+st.markdown("""
+<div class="section-wrap">
+    <div class="section-badge">STEP 01</div>
+    <div class="section-title">광고주 기본 정보</div>
+    <div class="section-desc">캠페인 전체 예산과 목표를 설정합니다</div>
+</div>
+""", unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 with col1:
@@ -55,14 +255,13 @@ with col1:
         step=100000, format="%d",
         key="global_budget_input"
     )
-    # Step 1 예산이 바뀌면 Step 2 브랜드 예산 위젯도 동기화
     if monthly_budget != st.session_state.get("_prev_global_budget"):
         st.session_state["_prev_global_budget"] = monthly_budget
         for idx in range(len(st.session_state.get("brands", []))):
             st.session_state[f"bgt_{idx}"] = monthly_budget
 with col2:
     campaign_goals = st.multiselect(
-        "캠페인 목표 (복수 선택 가능)",
+        "캠페인 목표",
         [
             "구매전환", "브랜드인지도", "트래픽 유입",
             "신제품 출시", "앱 다운로드", "리타겟팅",
@@ -70,19 +269,17 @@ with col2:
         ],
         default=["구매전환"]
     )
-
-    # 목표별 추가 입력
     new_product_info = ""
     season_info = ""
     if "신제품 출시" in campaign_goals:
         new_product_info = st.text_input(
-            "🆕 신제품 정보",
+            "신제품 정보",
             placeholder="예) 드리미 V20, 초경량 무선청소기, 2026년 5월 출시",
             help="신제품명, 주요 특징, 출시일 등을 입력하면 관련 키워드가 더 잘 생성됩니다."
         )
     if "시즌 프로모션" in campaign_goals:
         season_info = st.text_input(
-            "🗓️ 시즌/이슈 내용",
+            "시즌/이슈 내용",
             placeholder="예) 여름 휴가 시즌, 캠핑 트렌드 / 블랙프라이데이 할인",
             help="어떤 시즌이나 이슈를 타겟하는지 입력하면 시즌 키워드가 반영됩니다."
         )
@@ -90,11 +287,16 @@ with col2:
 st.divider()
 
 # ── Step 2: 브랜드 정보 입력 ──────────────────────────────────────
-st.subheader("🏷️ Step 2. 브랜드 정보 입력")
-st.caption("여러 브랜드를 추가할 수 있어요. 브랜드별로 별도 제안서 시트가 생성됩니다.")
+st.markdown("""
+<div class="section-wrap">
+    <div class="section-badge">STEP 02</div>
+    <div class="section-title">브랜드 정보</div>
+    <div class="section-desc">브랜드별 제안서 시트가 생성됩니다. 여러 브랜드를 동시에 추가할 수 있습니다</div>
+</div>
+""", unsafe_allow_html=True)
 
 AWARENESS_OPTIONS = {
-    "신규/저인지도 (파워링크 집행 경험 없음)": "low",
+    "신규/저인지도 (집행 경험 없음)": "low",
     "중간 (일부 인지도 있음, 집행 경험 있음)": "medium",
     "높음 (브랜드 인지도 있음)": "high",
 }
@@ -102,9 +304,8 @@ AWARENESS_LABELS = list(AWARENESS_OPTIONS.keys())
 AWARENESS_VALS   = list(AWARENESS_OPTIONS.values())
 
 def brand_form(idx, brand_data={}):
-    label = brand_data.get("brand_name", "(미입력)")
-    with st.expander(f"브랜드 {idx+1}: {label}", expanded=(idx == 0)):
-
+    label = brand_data.get("brand_name", "브랜드명 미입력")
+    with st.expander(f"브랜드 {idx+1}  ·  {label}", expanded=(idx == 0)):
         c1, c2 = st.columns(2)
         with c1:
             brand_name  = st.text_input("브랜드명 *", value=brand_data.get("brand_name",""), key=f"bname_{idx}")
@@ -125,9 +326,8 @@ def brand_form(idx, brand_data={}):
             aw_sel  = st.selectbox("브랜드 인지도", AWARENESS_LABELS, index=aw_idx, key=f"aw_{idx}")
             awareness = AWARENESS_OPTIONS[aw_sel]
 
-            # URL 입력
             brand_urls = st.text_area(
-                "브랜드/상품 URL (한 줄에 하나씩)\n※ 입력 시 해당 페이지에서 키워드 자동 추출",
+                "브랜드/상품 URL (한 줄에 하나씩)\n입력 시 해당 페이지에서 키워드 자동 추출",
                 value="\n".join(brand_data.get("brand_urls", [])),
                 key=f"url_{idx}",
                 placeholder="예)\nhttps://brand.naver.com/dreame\nhttps://smartstore.naver.com/dreame",
@@ -135,7 +335,6 @@ def brand_form(idx, brand_data={}):
             )
             url_list = [u.strip() for u in brand_urls.splitlines() if u.strip()]
 
-            # 필수 키워드
             must_kws = st.text_input(
                 "필수 포함 키워드 (쉼표 구분)",
                 value=", ".join([m.get("keyword","") if isinstance(m,dict) else str(m) for m in brand_data.get("must_keywords",[])]),
@@ -172,23 +371,29 @@ for i in range(len(st.session_state.brands)):
     bc = brand_form(i, st.session_state.brands[i])
     brand_configs.append(bc)
 
-col_a, col_b = st.columns(2)
+col_a, col_b = st.columns([1, 1])
 with col_a:
-    if st.button("➕ 브랜드 추가"):
+    if st.button("브랜드 추가", use_container_width=True):
         st.session_state.brands.append({"monthly_budget": monthly_budget})
         st.rerun()
 with col_b:
     if len(st.session_state.brands) > 1:
-        if st.button("➖ 마지막 브랜드 삭제"):
+        if st.button("마지막 브랜드 삭제", use_container_width=True):
             st.session_state.brands.pop()
             st.rerun()
 
 st.divider()
 
 # ── Step 3: 제안서 생성 ───────────────────────────────────────────
-st.subheader("🚀 Step 3. 제안서 생성")
+st.markdown("""
+<div class="section-wrap">
+    <div class="section-badge">STEP 03</div>
+    <div class="section-title">제안서 생성</div>
+    <div class="section-desc">AI 키워드 생성 → 네이버 데이터 조회 → 예산 최적화 순서로 진행됩니다 (약 2~5분 소요)</div>
+</div>
+""", unsafe_allow_html=True)
 
-if st.button("📊 제안서 생성 시작", type="primary", use_container_width=True):
+if st.button("제안서 생성 시작", type="primary", use_container_width=True):
 
     valid = True
     if not client_name:
@@ -200,7 +405,6 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
             valid = False
 
     if valid:
-        # 캠페인 목표 상세 정보 합산
         goal_detail = ", ".join(campaign_goals)
         if new_product_info:
             goal_detail += f" | 신제품: {new_product_info}"
@@ -230,14 +434,12 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
                 brand_name = brand_cfg["brand_name"]
                 status_text.text(f"[{i+1}/{len(brand_configs)}] '{brand_name}' 처리 중...")
 
-                # URL 크롤링 (네이버 브랜드스토어/스마트스토어 전용 파서)
                 url_result = {}
                 urls = brand_cfg.get("brand_urls", [])
                 if urls:
                     try:
                         status_text.text(f"[{i+1}/{len(brand_configs)}] URL 분석 중...")
                         url_result = extract_keywords_from_urls(urls)
-                        # URL에서 추출한 제품명 보강
                         if url_result.get("products"):
                             existing = set(brand_cfg.get("products", []))
                             for p in url_result["products"]:
@@ -246,7 +448,6 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
                     except Exception as e:
                         st.warning(f"URL 분석 실패: {e}")
 
-                # 브랜드 자동 프로파일 보강 (GPT)
                 status_text.text(f"[{i+1}/{len(brand_configs)}] '{brand_name}' 브랜드 분석 중...")
                 try:
                     brand_cfg = enrich_brand_config(
@@ -256,14 +457,12 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
                 except Exception as e:
                     st.warning(f"브랜드 분석 실패: {e}")
 
-                # URL 키워드를 general_keyword_themes에 추가
                 url_keywords = url_result.get("keywords", [])
                 if url_keywords:
                     brand_cfg["general_keyword_themes"] = list(set(
                         brand_cfg.get("general_keyword_themes", []) + url_keywords[:15]
                     ))
 
-                # 커스텀 추가/제외 키워드 반영
                 add_kws = st.session_state.custom_add_kws.get(brand_name, [])
                 exc_kws = st.session_state.custom_exc_kws.get(brand_name, [])
                 if exc_kws:
@@ -273,7 +472,6 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
 
                 brand_profile = make_brand_profile(client_profile, brand_cfg)
 
-                # 커스텀 추가 키워드를 must_keywords로 추가
                 if add_kws:
                     brand_profile["must_keywords"] = brand_profile.get("must_keywords", []) + [
                         {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws
@@ -300,7 +498,14 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
 
             progress_bar.progress(1.0)
             status_text.text("")
-            st.success(f"✅ 제안서 생성 완료! 총 {len(brand_results)}개 브랜드")
+
+            active_kw_total = sum(
+                len([r for r in res['recommended'] if not r.get('not_selected')])
+                for res in brand_results
+            )
+            st.success(
+                f"제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {active_kw_total}개"
+            )
 
         except Exception as e:
             st.error(f"오류가 발생했습니다: {e}")
@@ -310,7 +515,12 @@ if st.button("📊 제안서 생성 시작", type="primary", use_container_width
 # ── Step 4: 결과 확인 ─────────────────────────────────────────────
 if st.session_state.brand_results:
     st.divider()
-    st.subheader("📈 Step 4. 결과 요약")
+    st.markdown("""
+<div class="section-wrap">
+    <div class="section-badge">STEP 04</div>
+    <div class="section-title">결과 요약</div>
+</div>
+""", unsafe_allow_html=True)
 
     brand_results = st.session_state.brand_results
 
@@ -318,50 +528,30 @@ if st.session_state.brand_results:
     cols = st.columns(len(brand_results))
     for i, result in enumerate(brand_results):
         with cols[i]:
-            used_ratio = result['total_cost'] / result['monthly_budget'] * 100
-            st.metric(
-                label=result["brand_name"],
-                value=f"{result['total_cost']:,}원",
-                delta=f"예산 대비 {used_ratio:.0f}%"
-            )
-            st.caption(f"카테고리: {result['brand_category']}")
-            active_kws = [r for r in result['recommended'] if not r.get('not_selected')]
-            st.caption(f"추천 키워드: {len(active_kws)}개")
+            used_ratio  = result['total_cost'] / result['monthly_budget'] * 100
+            active_kws  = [r for r in result['recommended'] if not r.get('not_selected')]
+            st.markdown(f"""
+<div class="metric-card">
+    <div class="metric-label">{result['brand_category']}</div>
+    <div class="metric-value">{result['brand_name']}</div>
+    <div class="metric-sub">예상 월 비용 <strong>{result['total_cost']:,}원</strong> · 예산 대비 {used_ratio:.0f}%</div>
+    <div class="metric-sub" style="margin-top:4px">추천 키워드 <strong>{len(active_kws)}개</strong></div>
+</div>
+""", unsafe_allow_html=True)
 
     st.divider()
 
     # 브랜드별 키워드 상세 탭
-    st.subheader("📋 추천 키워드 상세")
+    st.markdown('<div class="kw-table-header">추천 키워드 상세</div>', unsafe_allow_html=True)
     tabs = st.tabs([r["brand_name"] for r in brand_results])
 
     for tab, result in zip(tabs, brand_results):
         with tab:
-            brand_name = result["brand_name"]
-            recommended = result["recommended"]
-
-            # 활성/대기 구분
+            brand_name   = result["brand_name"]
+            recommended  = result["recommended"]
             active_rows  = [r for r in recommended if not r.get("not_selected")]
             standby_rows = result.get("standby_rows", [])
 
-            # 키워드 테이블 데이터 구성
-            def make_kw_df(rows):
-                data = []
-                for r in rows:
-                    pc_cost = r.get("pc_cost", 0) or 0
-                    mo_cost = r.get("mo_cost", 0) or 0
-                    data.append({
-                        "키워드":     r.get("keyword", ""),
-                        "구분":       r.get("keyword_type_label", r.get("keyword_type", "")),
-                        "PC 검색수":  int(r.get("pc_impr", 0) or 0),
-                        "MO 검색수":  int(r.get("mo_impr", 0) or 0),
-                        "PC 클릭수":  int(r.get("pc_clicks", 0) or 0),
-                        "MO 클릭수":  int(r.get("mo_clicks", 0) or 0),
-                        "경쟁도":     r.get("competition", "-"),
-                        "예상비용":   int(pc_cost + mo_cost),
-                    })
-                return pd.DataFrame(data)
-
-            # ── 키워드 테이블 (체크박스 포함) ───────────────────
             all_rows_combined = active_rows + standby_rows
             exc_set = set(st.session_state.custom_exc_kws.get(brand_name, []))
 
@@ -382,7 +572,7 @@ if st.session_state.brand_results:
                 })
 
             df_table = pd.DataFrame(table_data)
-            st.markdown(f"**키워드 목록 ({len(all_rows_combined)}개)** — 포함 체크 해제 시 제외됩니다")
+            st.caption(f"키워드 {len(all_rows_combined)}개 — 포함 체크 해제 시 제외됩니다")
             edited_table = st.data_editor(
                 df_table,
                 column_config={
@@ -400,16 +590,14 @@ if st.session_state.brand_results:
                 key=f"kw_table_{brand_name}"
             )
 
-            # 체크 해제된 키워드 자동 저장
             excluded = edited_table[edited_table["포함"] == False]["키워드"].tolist()
             st.session_state.custom_exc_kws[brand_name] = excluded
             if excluded:
-                st.caption(f"❌ 제외된 키워드 {len(excluded)}개: {', '.join(excluded[:5])}{'...' if len(excluded)>5 else ''}")
+                st.caption(f"제외된 키워드 {len(excluded)}개: {', '.join(excluded[:5])}{'...' if len(excluded)>5 else ''}")
 
             st.divider()
 
-            # ── 키워드 추가 ────────────────────────────────────────
-            st.markdown("**➕ 키워드 추가**")
+            st.markdown("**키워드 추가**")
             add_input = st.text_area(
                 "추가할 키워드 입력 (쉼표 또는 줄바꿈으로 구분)",
                 key=f"add_{brand_name}",
@@ -418,21 +606,26 @@ if st.session_state.brand_results:
             )
             add_kws = [k.strip() for k in add_input.replace(",","\n").splitlines() if k.strip()]
 
-            if st.button(f"🔄 '{brand_name}' 커스텀 적용 후 재생성", key=f"regen_{brand_name}"):
+            if st.button(f"'{brand_name}' 커스텀 적용 후 재생성", key=f"regen_{brand_name}"):
                 st.session_state.custom_add_kws[brand_name] = add_kws
                 st.info("커스텀 설정이 저장되었습니다. Step 3에서 '제안서 생성 시작'을 다시 눌러주세요.")
 
     st.divider()
 
     # ── 다운로드 ──────────────────────────────────────────────────
-    st.subheader("📥 Step 5. 다운로드")
+    st.markdown("""
+<div class="section-wrap">
+    <div class="section-badge">STEP 05</div>
+    <div class="section-title">제안서 다운로드</div>
+</div>
+""", unsafe_allow_html=True)
     today = datetime.now().strftime("%Y%m%d")
     st.download_button(
-        label="📥 제안서 엑셀 다운로드",
+        label="엑셀 제안서 다운로드",
         data=st.session_state.excel_bytes,
         file_name=f"{st.session_state.client_name}_proposal_{today}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         type="primary",
         use_container_width=True
     )
-    st.caption("※ 예상 성과(노출수/클릭수/비용)는 네이버 API 확인 후 업데이트 예정입니다.")
+    st.caption("예상 성과(노출수/클릭수/비용)는 네이버 API 데이터를 기반으로 시뮬레이션된 수치입니다.")
