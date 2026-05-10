@@ -85,6 +85,14 @@ URL 추출 키워드: {url_kw_str}
 - 예) ENB → "에너지회사 Enbridge(ENB), CJ ENM, 의학용어 ENBD 등과 무관"
 - 이 항목이 키워드 생성 시 혼동을 막는 핵심 역할을 함
 
+[forbidden_fragments]
+- 브랜드명·제품명과 철자 일부가 겹쳐 혼동될 수 있는 타 브랜드/앱/서비스 이름 목록
+- 키워드 생성 시 이 목록에 포함된 단어가 있는 키워드는 자동 제거됨
+- 예) 브랜드가 "LG 그램(gram)"이라면: ["인스타그램", "instagram", "Grammarly", "gramicci", "gramsnap"]
+- 예) 브랜드가 "ENB"라면: ["Enbridge", "ENM", "ENBD", "Enphase"]
+- 예) 브랜드가 "애플"이라면: ["사과", "apple pencil"은 관련 있으므로 제외]
+- 최대 15개, 짧은 일반 단어는 포함 금지 (오탐 방지)
+
 [korean_names]
 - 사용자가 입력한 브랜드 변형({variants_str})만 포함
 - 입력이 없으면 브랜드명의 자연스러운 한글 표기 1~2개만
@@ -111,6 +119,7 @@ URL 추출 키워드: {url_kw_str}
   "identity_statement": "브랜드 정의 1~2문장",
   "category_context": "카테고리 시장 설명 1문장",
   "what_this_brand_is_not": "혼동 방지 항목들",
+  "forbidden_fragments": ["혼동되는타브랜드1", "혼동되는타브랜드2"],
   "korean_names": ["한글표기1"],
   "products": ["제품1", "제품2"],
   "competitors": ["경쟁사1", "경쟁사2"],

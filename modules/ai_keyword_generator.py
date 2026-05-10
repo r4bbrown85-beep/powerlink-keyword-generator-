@@ -12,6 +12,20 @@ load_dotenv()
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+# SNS/소셜미디어 플랫폼 — 해당 브랜드가 SNS 툴이 아닌 경우 키워드로 부적절
+_SNS_PLATFORMS = frozenset([
+    "인스타그램", "instagram", "페이스북", "facebook", "유튜브", "youtube",
+    "트위터", "twitter", "틱톡", "tiktok", "카카오스토리", "핀터레스트", "pinterest",
+    "링크드인", "linkedin", "스냅챗", "snapchat", "레딧", "reddit",
+])
+
+_SNS_CATEGORY_HINTS = frozenset(["소셜미디어", "sns", "인플루언서", "social", "마케팅툴"])
+
+# 구매 의도 없는 범용 부정 패턴
+_NEGATIVE_INTENT_PATTERNS = [
+    "폐기", "버리는법", "처분방법", "재활용방법", "공짜", "무료로 받",
+]
+
 # AI 키워드 캐시 설정
 _AI_CACHE_DIR  = Path("data/cache/ai_keywords")
 _AI_CACHE_DAYS = 7
@@ -88,6 +102,64 @@ def _dedupe_keywords_by_category(keywords_by_category):
                 seen.add(kw)
         cleaned[cat] = temp
     return cleaned
+
+
+def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
+    """
+    AI 생성 후 1차 규칙 기반 필터.
+    - SNS 플랫폼 이름 제거 (SNS 툴 브랜드 제외)
+    - 구매 의도 없는 폐기/공짜 패턴 제거
+    - brand_identity.forbidden_fragments에 명시된 단어 포함 키워드 제거
+    """
+    brand_identity     = profile.get("brand_identity", {})
+    forbidden_raw      = brand_identity.get("forbidden_fragments", [])
+    forbidden_lower    = [f.lower() for f in forbidden_raw if isinstance(f, str) and len(f) >= 3]
+    brand_lower        = profile.get("brand_name", "").lower()
+    category_lower     = profile.get("category", "").lower()
+    is_sns_brand       = any(hint in category_lower for hint in _SNS_CATEGORY_HINTS)
+
+    removed = []
+    result  = {}
+
+    for cat, kw_list in keywords_by_category.items():
+        filtered = []
+        for kw in kw_list:
+            kw_text  = kw.get("keyword", "") if isinstance(kw, dict) else str(kw)
+            kw_lower = kw_text.lower()
+            skip     = False
+
+            # SNS 플랫폼 필터
+            if not is_sns_brand:
+                for sns in _SNS_PLATFORMS:
+                    if sns in kw_lower:
+                        skip = True
+                        break
+
+            # 부정 의도 패턴
+            if not skip:
+                for pat in _NEGATIVE_INTENT_PATTERNS:
+                    if pat in kw_text:
+                        skip = True
+                        break
+
+            # forbidden_fragments (brand_identity에서 명시된 혼동 단어)
+            if not skip and forbidden_lower:
+                for frag in forbidden_lower:
+                    if frag in kw_lower and brand_lower not in kw_lower:
+                        skip = True
+                        break
+
+            if skip:
+                removed.append(kw_text)
+            else:
+                filtered.append(kw)
+
+        result[cat] = filtered
+
+    if removed:
+        print(f"    [규칙필터] 제거 {len(removed)}개: {', '.join(removed[:8])}{'...' if len(removed) > 8 else ''}")
+
+    return result
 
 
 def generate_ai_keyword_plan(profile):
@@ -182,10 +254,17 @@ def generate_ai_keyword_plan(profile):
 ⚠️ 절대 금지: 경쟁사 + 주가/주식/채용/합병 등 투자/금융 관련 키워드
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-【절대 금지】
+【절대 금지 — 반드시 준수】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ❌ "이 브랜드가 아닌 것"에 해당하는 키워드
-❌ {category}와 무관한 타 업종 키워드
+❌ SNS/소셜미디어 플랫폼: 인스타그램, 유튜브, 페이스북, 틱톡, 트위터 등
+   (소셜미디어 마케팅 툴 브랜드가 아닌 경우 완전 금지)
+❌ 브랜드명·제품명과 철자 일부가 겹치는 타 브랜드 이름
+   예) 제품에 "gram"이 포함돼도 Instagram·Grammarly·gramicci·gramsnap 생성 금지
+   예) 브랜드가 "ENB"라도 Enbridge·CJ ENM·ENBD 생성 금지
+❌ {category}와 직접 관련 없는 타 업종·타 카테고리 키워드
+❌ 구매 의도 없는 키워드: 폐기, 처분, 버리는법, 재활용, 공짜, 무료로 받기 등
+❌ 정보 탐색성 키워드: 뜻, 의미, 영어로, 어원, 역사 등
 ❌ 문장형 키워드
 ❌ 주가/채용/합병/의학용어/금융 관련 키워드
 ❌ 경쟁사 키워드를 브랜드/상품 카테고리에 포함
@@ -240,7 +319,10 @@ def generate_ai_keyword_plan(profile):
         cleaned.setdefault(cat, [])
         category_descriptions.setdefault(cat, f"{cat} 중심의 검색 수요를 확보하기 위한 키워드")
 
-    # ── 브랜드 정체성 기반 검증 ──
+    # ── 1단계: 규칙 기반 필터 (SNS, 부정의도, forbidden_fragments) ──
+    cleaned = _rule_based_brand_filter(cleaned, profile)
+
+    # ── 2단계: AI 기반 관련성 검증 ──
     brand_identity = profile.get("brand_identity", {})
     cleaned = _verify_keywords_by_ai(cleaned, brand, category, brand_identity)
 
@@ -287,20 +369,23 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
 이 브랜드가 아닌 것: {not_this_brand if not_this_brand else "명시되지 않음"}
 브랜드 한글 표기: {korean_names if korean_names else "없음"}
 
-━━━ 제거 기준 ━━━
+━━━ 제거 기준 (의심스러우면 제거, 확실한 것만 유지) ━━━
 1. 위의 "이 브랜드가 아닌 것"에 해당하는 키워드
-2. {category}와 전혀 무관한 키워드
-3. 주가/채용/합병/의학용어/금융 관련 키워드
-4. 브랜드명과 비슷한 영문자로 다른 회사를 지칭하는 키워드
-   - 예) 브랜드가 ENB면: enbridge, enphase, CJ ENM, 코오롱ENP 등 제거
-5. 브랜드 변형처럼 보이지만 실제로 다른 회사인 키워드
-   - 예) "이앤비쇼핑", "삼신이앤비" 등 ENB와 무관한 다른 회사
+2. {category}와 직접 관련이 없는 키워드 (간접적이거나 불분명한 경우도 제거)
+3. SNS/소셜미디어 플랫폼 이름 (인스타그램, 유튜브, 페이스북, 트위터, 틱톡 등)
+4. 주가/채용/합병/의학용어/금융 관련 키워드
+5. 브랜드명·제품명과 철자 일부만 일치하는 타 브랜드 이름
+   - 예) 브랜드가 ENB면: enbridge, enphase, CJ ENM 등 제거
+   - 예) 제품에 "gram"이 포함돼도: Instagram, Grammarly, gramicci, gramsnap 등 제거
+6. 브랜드 변형처럼 보이지만 실제로 다른 회사인 키워드
+7. 구매 의도 없는 키워드: 폐기, 처분, 버리는법, 공짜, 무료로 받기 등
+8. 이 브랜드 광고를 클릭할 가능성이 없는 검색 의도를 가진 키워드
 
 ━━━ 유지 기준 ━━━
 - 브랜드명({brand}) + {category} 관련 조합
 - 한글 표기({korean_names}) + 제품 관련 조합
-- {category} 카테고리 일반 검색 키워드
-- 입력된 경쟁사 + 제품 관련 키워드
+- {category} 카테고리 순수 검색 키워드
+- 입력된 경쟁사 + {category} 제품 관련 키워드
 
 키워드 목록:
 {chr(10).join(f"- {kw}" for kw in all_kws)}
@@ -313,11 +398,16 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # 검증은 저렴한 모델로
+            model="gpt-4o",
             messages=[
                 {
                     "role": "system",
-                    "content": "너는 키워드 관련성 검증 전문가다. 카테고리와 무관한 키워드만 정확하게 찾아낸다. 반드시 JSON만 출력한다."
+                    "content": (
+                        "너는 네이버 검색광고 키워드 관련성 검증 전문가다. "
+                        "카테고리와 직접 관련이 없거나 다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
+                        "의심스러운 키워드는 제거하는 방향으로 판단한다. "
+                        "반드시 JSON만 출력한다."
+                    )
                 },
                 {"role": "user", "content": verify_prompt}
             ],
