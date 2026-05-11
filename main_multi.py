@@ -27,10 +27,18 @@ from modules.bid_simulator import optimize_budget, simulate_expanded, simulate_s
 
 load_dotenv()
 
-SUGGEST_SEED_LIMIT       = 25
+SUGGEST_SEED_LIMIT       = 30
 SUGGEST_PER_SOURCE_LIMIT = 5
-RELATED_SEED_LIMIT       = 15
-RELATED_PER_SEED_LIMIT   = 30
+RELATED_SEED_LIMIT       = 12
+RELATED_PER_SEED_LIMIT   = 12
+
+# 카테고리별 키워드 수 상한 (제안서 품질 제어)
+CATEGORY_KW_CAPS = {
+    "브랜드":  30,
+    "일반":    70,
+    "경쟁사":  45,
+    "상품":    40,
+}
 
 AMBIGUOUS_BLACKLIST = [
     "관람평", "영화", "출연진", "감독", "예매", "상영", "시청", "평점",
@@ -72,6 +80,8 @@ def make_brand_profile(client_profile, brand_cfg):
         "campaign_goal":          client_profile.get("campaign_goal", ""),
         "exclude_keywords":       brand_cfg.get("exclude_keywords",
                                   client_profile.get("exclude_keywords", [])),
+        "doc_context":            brand_cfg.get("doc_context", ""),
+        "campaign_notes":         brand_cfg.get("campaign_notes", ""),
     }
 
 
@@ -134,8 +144,14 @@ def pick_strong_suggest_seeds(rows, profile):
         seeds.append(p)
         if profile.get("brand_name"):
             seeds.append(f"{profile.get('brand_name')} {p}")
-    for c in profile.get("competitors", [])[:3]:
+
+    # 경쟁사: 전체 사용 + 카테고리 조합으로 경쟁사 키워드 수 확보
+    cat_word = profile.get("category", "").split()[0] if profile.get("category") else ""
+    for c in profile.get("competitors", []):
         seeds.append(c)
+        if cat_word:
+            seeds.append(f"{c} {cat_word}")
+
     for r in rows:
         kw = r["keyword"]
         if len(kw.split()) <= 3:
@@ -147,8 +163,8 @@ def pick_strong_suggest_seeds(rows, profile):
 def pick_related_seeds(rows, profile):
     """
     연관 키워드 조회용 씨드 선정.
-    핵심: 브랜드명보다 카테고리 키워드 위주로 구성.
-    인지도 낮은 브랜드도 카테고리 키워드로 풍부한 연관 키워드 확보.
+    카테고리 + 일반 키워드 위주 → 경쟁사 브랜드명은 제외
+    (대형 경쟁사 브랜드를 seed로 쓰면 에어컨/냉장고 등 무관 제품 연관키워드가 대량 유입됨)
     """
     seeds = []
 
@@ -159,19 +175,32 @@ def pick_related_seeds(rows, profile):
         if cat_kw and len(cat_kw) >= 2:
             seeds.append(cat_kw)
 
-    # 2. AI가 생성한 일반 키워드 중 검색량 있는 것 (2단어 이하)
+    # 1-2. 카테고리 + 주요 수식어 조합
+    cat_word = category.split()[0] if category else ""
+    if cat_word:
+        for modifier in ["추천", "비교", "가격", "순위"]:
+            seeds.append(f"{cat_word} {modifier}")
+
+    # 2. AI가 생성한 일반 키워드 중 짧은 것 (2단어 이하)
     general_rows = [r for r in rows
                     if "일반" in r.get("category", "")
-                    and len(r["keyword"].split()) <= 2]
-    for r in sorted(general_rows, key=lambda x: -(x.get("pc_impr", 0) + x.get("mo_impr", 0)))[:5]:
+                    and len(r["keyword"].split()) <= 2
+                    and r.get("source") == "ai_seed"]
+    for r in general_rows[:6]:
         seeds.append(r["keyword"])
 
-    # 3. 경쟁사 (경쟁사 키워드로 연관 키워드 확장)
-    for c in profile.get("competitors", [])[:3]:
-        seeds.append(c)
+    # 3. 제품명 (카테고리 관련 제품)
+    for p in profile.get("products", [])[:3]:
+        seeds.append(p)
 
     # 4. 브랜드명 (인지도 높은 브랜드는 효과 있음)
     seeds.append(profile.get("brand_name", ""))
+    # 브랜드+카테고리 조합
+    if cat_word and profile.get("brand_name"):
+        seeds.append(f"{profile.get('brand_name')} {cat_word}")
+
+    # 경쟁사는 의도적으로 제외: 대형 브랜드(삼성/LG/애플)를 seed로 쓰면
+    # 에어컨/냉장고/TV 등 무관 제품 연관키워드가 대량 유입됨
 
     seeds = uniq_by_ad_keyword([x for x in seeds if x])
     return seeds[:RELATED_SEED_LIMIT]
@@ -296,7 +325,7 @@ def build_relevance_filter(profile):
         "로봇청소기":   ["로봇청소기","로봇","청소기","자동청소","물걸레로봇","로보락"],
         "무선청소기":   ["무선청소기","스틱청소기","핸디청소기","청소기","무선","스틱"],
         "향수":         ["향수","퍼퓸","니치","명품","오드퍼퓸","프래그런스"],
-        "노트북":       ["노트북","laptop","라이젠","인텔","학생노트북","게이밍노트북","울트라북","맥북","삼성노트북","lg노트북"],
+        "노트북":       ["노트북","laptop","울트라북","맥북","삼성노트북","lg노트북","게이밍노트북","학생노트북","사무용노트북","노트북추천"],
         "태블릿":       ["태블릿","tablet","아이패드","갤럭시탭","안드로이드"],
         "스마트폰":     ["스마트폰","휴대폰","아이폰","갤럭시","핸드폰","폰"],
         "에어컨":       ["에어컨","냉방","인버터","벽걸이","스탠드에어컨"],
@@ -348,6 +377,48 @@ def is_relevant_keyword(keyword, relevance_tokens, profile):
     return False
 
 
+def apply_category_caps(rows):
+    """카테고리별 키워드 수 상한 적용 — ai_seed 우선, 그 다음 score 순으로 선발."""
+    by_cat = {}
+    for row in rows:
+        cat = row.get("category", "일반 키워드")
+        by_cat.setdefault(cat, []).append(row)
+
+    result = []
+    for cat, cat_rows in by_cat.items():
+        cap = None
+        for key, limit in CATEGORY_KW_CAPS.items():
+            if key in cat:
+                cap = limit
+                break
+
+        if cap is None or len(cat_rows) <= cap:
+            result.extend(cat_rows)
+            continue
+
+        sorted_rows = sorted(cat_rows, key=lambda x: (
+            0 if x.get("source") == "ai_seed" else 1,
+            -x.get("score", 0),
+        ))
+        result.extend(sorted_rows[:cap])
+        print(f"  카테고리 상한: {cat} {len(cat_rows)}→{cap}개")
+
+    return result
+
+
+def _is_category_relevant(keyword, profile):
+    """카테고리 핵심 단어가 키워드에 포함되어 있는지 확인."""
+    kw_lower = keyword.lower().replace(" ", "")
+    category = profile.get("category", "").lower()
+    for cat_word in category.replace(",", " ").split():
+        if len(cat_word) >= 2 and cat_word in kw_lower:
+            return True
+    for p in profile.get("products", []):
+        if p and p.lower().replace(" ", "") in kw_lower:
+            return True
+    return False
+
+
 def filter_unrelated_keywords(rows, profile):
     relevance_tokens = build_relevance_filter(profile)
     brand_name_norm  = normalize_keyword_for_ad(profile.get("brand_name", ""))
@@ -382,6 +453,13 @@ def filter_unrelated_keywords(rows, profile):
             removed += 1
             continue
 
+        # 지역명 + 카테고리 + 수리 패턴 (제주시컴퓨터수리 등) — 확장 키워드만 적용
+        if source != "ai_seed" and "수리" in kw.lower():
+            has_brand_in_kw = any(b and b in kw_norm for b in all_brand_norms)
+            if not has_brand_in_kw:
+                removed += 1
+                continue
+
         # profile의 exclude_keywords로 제외 (광고주별 설정)
         exclude_kw_list = profile.get("exclude_keywords", [])
         if exclude_kw_list:
@@ -399,6 +477,11 @@ def filter_unrelated_keywords(rows, profile):
                 for comp in competitor_norms
             )
             if is_competitor_kw:
+                # 경쟁사 브랜드명이 포함되어도 카테고리와 무관하면 제거
+                # (삼성에어컨, 삼성냉장고 등 타 제품군 유입 방지)
+                if not _is_category_relevant(kw, profile):
+                    removed += 1
+                    continue
                 row = dict(row)
                 row["category"] = comp_cat_name
                 row["keyword_type"] = "COMPETITOR"
@@ -504,13 +587,17 @@ def attach_naver_stats(rows):
             row.setdefault("competition", "MID")
         else:
             data               = stats_map.get(row["keyword"], {})
-            row["pc_impr"]     = data.get("pc_impr", 0)
-            row["mo_impr"]     = data.get("mo_impr", 0)
-            row["pc_click"]    = data.get("pc_click", 0)
-            row["mo_click"]    = data.get("mo_click", 0)
+            row["pc_impr"]     = data.get("pc_impr", 0)    # 월간 PC 검색량 (쿼리수)
+            row["mo_impr"]     = data.get("mo_impr", 0)    # 월간 MO 검색량 (쿼리수)
+            row["pc_click"]    = data.get("pc_click", 0)   # 월간 시장 평균 PC 클릭수
+            row["mo_click"]    = data.get("mo_click", 0)   # 월간 시장 평균 MO 클릭수
             row["ctr"]         = data.get("ctr", 0)
             row["competition"] = data.get("competition", "MID")
             row["monthlySearchVolume"] = row["pc_impr"] + row["mo_impr"]
+            # plAvgDepth: 파워링크 평균 게재 순위 (있을 때만 저장, bid_simulator fallback에서 활용)
+            pl_depth = data.get("pl_avg_depth")
+            if pl_depth is not None:
+                row["pl_avg_depth"] = pl_depth
 
         comp   = str(row.get("competition", "MID")).upper()
         volume = row.get("monthlySearchVolume", 0)
@@ -674,7 +761,11 @@ def run_single_brand(brand_profile, brand_name):
     score_map = {k: s for k, s in scored}
     for row in rows:
         row["score"] = score_map.get(row["keyword"], 50)
-    print(f"  전체 키워드: {len(rows)}개")
+    print(f"  전체 키워드 (필터 후): {len(rows)}개")
+
+    # 4-2. 카테고리 상한 적용 (Naver API 호출 전 — API 비용/속도 최적화)
+    rows = apply_category_caps(rows)
+    print(f"  카테고리 상한 후: {len(rows)}개")
 
     # 5. 네이버 데이터 조회
     print("  [5] 네이버 데이터 조회...")

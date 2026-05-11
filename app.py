@@ -19,349 +19,349 @@ st.set_page_config(
     page_title="PowerLink Planner",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
-# ─────────────────────────────────────────────────────────────────
-# CSS  (Inter 폰트는 config.toml이 처리 — 여기선 레이아웃만)
-# ─────────────────────────────────────────────────────────────────
+# ─── CSS ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-/* ── 전역 ── */
-#MainMenu, footer, header { visibility: hidden; }
-.stDeployButton { display: none !important; }
+/* ── 기본 Streamlit UI 요소 완전 제거 ── */
+#MainMenu,
+footer,
+.stDeployButton,
+header[data-testid="stHeader"],
+[data-testid="stSidebar"],
+[data-testid="collapsedControl"],
+[data-testid="stSidebarNav"]             { display: none !important; }
+
+/* ── 레이아웃 ── */
 .block-container {
-    padding: 2.5rem 3rem 5rem !important;
+    padding: 0 2.75rem 6rem !important;
     max-width: 1100px !important;
 }
 
-/* ── 사이드바 본체 ── */
-[data-testid="stSidebar"] {
-    background: #0B1120 !important;
-    border-right: 1px solid #1E293B !important;
-    min-width: 240px !important;
-}
-[data-testid="stSidebar"] * { color: #94A3B8 !important; }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3,
-[data-testid="stSidebar"] strong { color: #F1F5F9 !important; }
-[data-testid="stSidebar"] hr { border-color: #1E293B !important; }
-[data-testid="stSidebarNav"] { display: none !important; }
-
-/* ── 사이드바 토글 버튼 — 항상 잘 보이게 ── */
-[data-testid="collapsedControl"] {
-    background: #0B1120 !important;
-    border-right: 1px solid #1E293B !important;
-    color: #94A3B8 !important;
-}
-[data-testid="collapsedControl"]:hover {
-    background: #1E293B !important;
-    color: #F1F5F9 !important;
-}
-/* 접혔을 때 토글 화살표 */
-[data-testid="collapsedControl"] svg { fill: #64748B !important; }
-[data-testid="collapsedControl"]:hover svg { fill: #F1F5F9 !important; }
-
-/* ── 헤더 영역 ── */
-.pl-header {
-    padding: 0 0 28px 0;
-    margin-bottom: 44px;
-    border-bottom: 1.5px solid #E5E7EB;
+/* ─────────────────────────────────────────
+   앱 바  (상단 다크 네이비 바)
+───────────────────────────────────────── */
+.pl-bar {
+    background: #0F172A;
+    margin: 0 -2.75rem 3rem -2.75rem;
+    padding: 0 2.75rem;
+    height: 58px;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    border-bottom: 1px solid #1E293B;
 }
-.pl-brand {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-.pl-logo {
-    width: 42px; height: 42px;
-    background: linear-gradient(135deg, #1677FF 0%, #0958D9 100%);
-    border-radius: 10px;
+.pl-bar-l       { display: flex; align-items: center; gap: 10px; }
+.pl-bar-icon    {
+    width: 28px; height: 28px; border-radius: 7px;
+    background: linear-gradient(135deg,#3B82F6,#1D4ED8);
     display: flex; align-items: center; justify-content: center;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    flex-shrink: 0;
+    font-size: 13px; font-weight: 800; color:#fff;
 }
-.pl-name {
-    font-size: 18px;
-    font-weight: 700;
-    color: #0B1120;
-    letter-spacing: -0.02em;
-    line-height: 1;
-    margin-bottom: 5px;
-}
-.pl-sub {
-    font-size: 12px;
-    color: #9CA3AF;
-    letter-spacing: 0.01em;
-}
-.pl-chips {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-.pl-chip {
-    font-size: 11px;
-    font-weight: 500;
-    padding: 5px 12px;
-    border-radius: 999px;
-    letter-spacing: 0.01em;
-}
-.pl-chip-model {
-    background: #F3F4F6;
-    color: #6B7280;
-}
-.pl-chip-beta {
-    background: #EFF6FF;
-    color: #1677FF;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-}
+.pl-bar-name    { font-size:15px; font-weight:700; color:#F1F5F9; letter-spacing:-.02em; }
+.pl-bar-sep     { width:1px; height:16px; background:#334155; margin:0 6px; }
+.pl-bar-sub     { font-size:12px; color:#64748B; }
+.pl-bar-r       { display:flex; align-items:center; gap:8px; }
+.pl-pill        { font-size:11px; font-weight:600; padding:3px 10px; border-radius:999px; letter-spacing:.03em; }
+.pl-pill-ai     { background:#1E293B; color:#94A3B8; }
+.pl-pill-beta   { background:rgba(59,130,246,.15); color:#60A5FA; }
 
-/* ── 스텝 헤더 ── */
-.pl-step {
-    display: flex;
-    align-items: flex-start;
-    gap: 14px;
-    margin-bottom: 28px;
+/* ─────────────────────────────────────────
+   섹션 헤더
+───────────────────────────────────────── */
+.pl-sec {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #E2E8F0;
+    margin-bottom: 24px;
 }
-.pl-step-num {
-    width: 30px; height: 30px;
-    background: #1677FF;
-    color: #fff;
-    border-radius: 50%;
+.pl-sec-num {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #1D4ED8; color: #fff;
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700;
-    flex-shrink: 0; margin-top: 1px;
+    font-size: 12px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
 }
-.pl-step-body {}
-.pl-step-title {
-    font-size: 17px;
-    font-weight: 700;
-    color: #0B1120;
-    letter-spacing: -0.02em;
-    margin: 0 0 4px;
-    line-height: 1.2;
-}
-.pl-step-desc {
-    font-size: 13px;
-    color: #6B7280;
-    margin: 0;
-    line-height: 1.5;
-}
+.pl-sec-title   { font-size:16px; font-weight:700; color:#0F172A; letter-spacing:-.02em; margin:0 0 3px; }
+.pl-sec-desc    { font-size:13px; color:#94A3B8; margin:0; line-height:1.5; }
 
-/* ── 구분선 ── */
-hr {
-    border: none !important;
-    border-top: 1px solid #F1F5F9 !important;
-    margin: 40px 0 !important;
-}
+/* ─────────────────────────────────────────
+   구분선
+───────────────────────────────────────── */
+hr { border:none !important; border-top:1px solid #E2E8F0 !important; margin:38px 0 !important; }
 
-/* ── Primary 버튼 ── */
-div[data-testid="stButton"] > button[kind="primary"] {
-    background: #1677FF !important;
-    color: #fff !important;
-    border: none !important;
-    font-weight: 600 !important;
-    font-size: 14px !important;
-    border-radius: 8px !important;
-    padding: 0.6rem 1.4rem !important;
-    letter-spacing: 0 !important;
-    box-shadow: 0 1px 3px rgba(22,119,255,0.25) !important;
-    transition: background .15s ease, box-shadow .15s ease !important;
-}
-div[data-testid="stButton"] > button[kind="primary"]:hover {
-    background: #0958D9 !important;
-    box-shadow: 0 3px 8px rgba(22,119,255,0.3) !important;
-}
-
-/* ── Secondary 버튼 ── */
-div[data-testid="stButton"] > button[kind="secondary"] {
-    background: #fff !important;
-    border: 1px solid #E5E7EB !important;
-    color: #374151 !important;
+/* ─────────────────────────────────────────
+   인풋 / 라벨
+───────────────────────────────────────── */
+label[data-testid="stWidgetLabel"] p,
+[data-testid="stWidgetLabel"] {
     font-weight: 500 !important;
+    font-size: 13px !important;
+    color: #475569 !important;
+    margin-bottom: 5px !important;
+    letter-spacing: 0 !important;
+}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input {
+    border-radius: 8px !important;
+    border: 1px solid #E2E8F0 !important;
     font-size: 14px !important;
-    border-radius: 8px !important;
+    color: #0F172A !important;
+    transition: border-color .15s, box-shadow .15s !important;
 }
-div[data-testid="stButton"] > button[kind="secondary"]:hover {
-    border-color: #D1D5DB !important;
-    background: #F9FAFB !important;
+[data-testid="stTextInput"] input:focus,
+[data-testid="stNumberInput"] input:focus {
+    border-color: #1D4ED8 !important;
+    box-shadow: 0 0 0 3px rgba(29,78,216,.10) !important;
+}
+[data-testid="stTextArea"] textarea {
+    border-radius: 8px !important;
+    border: 1px solid #E2E8F0 !important;
+    font-size: 14px !important;
+    color: #0F172A !important;
 }
 
-/* ── 다운로드 버튼 ── */
-div[data-testid="stDownloadButton"] > button {
-    background: #059669 !important;
-    color: #fff !important;
-    border: none !important;
-    font-weight: 600 !important;
-    font-size: 15px !important;
-    border-radius: 8px !important;
-    padding: 0.7rem 1.5rem !important;
-    box-shadow: 0 1px 3px rgba(5,150,105,0.25) !important;
-}
-div[data-testid="stDownloadButton"] > button:hover {
-    background: #047857 !important;
-}
-
-/* ── Expander ── */
+/* ─────────────────────────────────────────
+   Expander (브랜드 폼)
+───────────────────────────────────────── */
 [data-testid="stExpander"] {
-    border: 1px solid #E5E7EB !important;
-    border-radius: 10px !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 12px !important;
     margin-bottom: 10px !important;
     overflow: hidden !important;
+    box-shadow: 0 1px 3px rgba(15,23,42,.05) !important;
 }
 [data-testid="stExpander"] summary {
     font-weight: 600 !important;
     font-size: 14px !important;
-    color: #111827 !important;
-    padding: 14px 18px !important;
+    color: #0F172A !important;
+    padding: 16px 20px !important;
     background: #fff !important;
 }
-[data-testid="stExpander"] summary:hover {
-    background: #F9FAFB !important;
+[data-testid="stExpander"] summary:hover { background: #F8FAFC !important; }
+[data-testid="stExpander"] > div > div   { padding: 0 20px 20px !important; }
+
+/* ─────────────────────────────────────────
+   버튼 – Primary
+───────────────────────────────────────── */
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: #1D4ED8 !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    border-radius: 8px !important;
+    padding: .65rem 1.5rem !important;
+    box-shadow: 0 1px 3px rgba(29,78,216,.28) !important;
+    transition: all .15s ease !important;
+    letter-spacing: 0 !important;
+}
+div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: #1E40AF !important;
+    box-shadow: 0 4px 14px rgba(29,78,216,.32) !important;
+    transform: translateY(-1px) !important;
 }
 
-/* ── 탭 ── */
+/* ─────────────────────────────────────────
+   버튼 – Secondary
+───────────────────────────────────────── */
+div[data-testid="stButton"] > button[kind="secondary"] {
+    background: #fff !important;
+    border: 1px solid #E2E8F0 !important;
+    color: #475569 !important;
+    font-weight: 500 !important;
+    font-size: 14px !important;
+    border-radius: 8px !important;
+    transition: all .15s ease !important;
+}
+div[data-testid="stButton"] > button[kind="secondary"]:hover {
+    border-color: #CBD5E1 !important;
+    background: #F8FAFC !important;
+}
+
+/* ─────────────────────────────────────────
+   다운로드 버튼
+───────────────────────────────────────── */
+div[data-testid="stDownloadButton"] > button {
+    background: #059669 !important;
+    color: #fff !important;
+    border: none !important;
+    font-weight: 700 !important;
+    font-size: 15px !important;
+    border-radius: 8px !important;
+    padding: .75rem 1.5rem !important;
+    box-shadow: 0 1px 3px rgba(5,150,105,.28) !important;
+    transition: all .15s ease !important;
+}
+div[data-testid="stDownloadButton"] > button:hover {
+    background: #047857 !important;
+    box-shadow: 0 4px 14px rgba(5,150,105,.32) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ─────────────────────────────────────────
+   탭
+───────────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 0;
-    border-bottom: 1px solid #E5E7EB;
+    border-bottom: 1px solid #E2E8F0;
+    background: transparent;
 }
 .stTabs [data-baseweb="tab"] {
     font-weight: 500 !important;
     font-size: 13.5px !important;
-    color: #6B7280 !important;
-    padding: 10px 20px !important;
+    color: #94A3B8 !important;
+    padding: 10px 22px !important;
     border-radius: 0 !important;
     border: none !important;
 }
 .stTabs [aria-selected="true"] {
-    color: #1677FF !important;
+    color: #1D4ED8 !important;
     font-weight: 600 !important;
-    border-bottom: 2px solid #1677FF !important;
+    border-bottom: 2px solid #1D4ED8 !important;
 }
 
-/* ── 인풋 레이블 ── */
-label[data-testid="stWidgetLabel"] p,
-[data-testid="stWidgetLabel"] {
-    font-weight: 500 !important;
-    font-size: 13.5px !important;
-    color: #374151 !important;
-    margin-bottom: 4px !important;
-}
-
-/* ── 알림 ── */
-[data-testid="stAlert"] {
-    border-radius: 8px !important;
-    font-size: 13.5px !important;
-    font-weight: 500 !important;
-}
-
-/* ── 프로그레스 ── */
+/* ─────────────────────────────────────────
+   프로그레스바
+───────────────────────────────────────── */
 [data-testid="stProgressBar"] > div {
-    background: #1677FF !important;
+    background: #1D4ED8 !important;
     border-radius: 4px !important;
 }
 
-/* ── 캡션 ── */
-small, .st-emotion-cache-s1r2mm { color: #9CA3AF !important; font-size: 12px !important; }
-
-/* ── 인포 카드 (HTML) ── */
-.pl-infobox {
-    background: #F0F7FF;
-    border: 1px solid #BAD7FF;
-    border-radius: 10px;
-    padding: 20px 24px;
-    margin-bottom: 18px;
+/* ─────────────────────────────────────────
+   알림
+───────────────────────────────────────── */
+[data-testid="stAlert"] {
+    border-radius: 8px !important;
+    font-size: 13.5px !important;
 }
-.pl-infobox-title { font-size: 14px; font-weight: 700; color: #0B1120; margin-bottom: 6px; }
-.pl-infobox-desc  { font-size: 13px; color: #4B6FA8; line-height: 1.6; }
 
-/* ── KPI 카드 ── */
-.pl-kpi {
+/* ─────────────────────────────────────────
+   정보 박스
+───────────────────────────────────────── */
+.pl-info {
+    background: #EFF6FF;
+    border: 1px solid #BFDBFE;
+    border-radius: 10px;
+    padding: 16px 22px;
+    margin-bottom: 20px;
+}
+.pl-info-t { font-size:13px; font-weight:700; color:#1D4ED8; margin-bottom:6px; }
+.pl-info-b { font-size:13px; color:#3B82F6; line-height:1.65; }
+
+/* ─────────────────────────────────────────
+   KPI 카드 그리드
+───────────────────────────────────────── */
+.pl-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 28px;
+}
+.pl-kpi-card {
     background: #fff;
-    border: 1px solid #E5E7EB;
+    border: 1px solid #E2E8F0;
+    border-radius: 12px;
+    padding: 20px 22px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.05);
+}
+.pl-kpi-lbl {
+    font-size: 11px;
+    font-weight: 600;
+    color: #94A3B8;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    margin-bottom: 9px;
+}
+.pl-kpi-val {
+    font-size: 24px;
+    font-weight: 800;
+    color: #0F172A;
+    letter-spacing: -.04em;
+    line-height: 1;
+    margin-bottom: 4px;
+}
+.pl-kpi-sub { font-size:12px; color:#94A3B8; }
+.pl-kpi-card.accent .pl-kpi-val { color:#1D4ED8; }
+
+/* 브랜드별 KPI 요약 */
+.pl-brand-kpi {
+    background: #fff;
+    border: 1px solid #E2E8F0;
     border-radius: 12px;
     padding: 22px 24px;
-    height: 100%;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(15,23,42,.05);
 }
-.pl-kpi-cat   { font-size: 11px; font-weight: 600; color: #9CA3AF; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
-.pl-kpi-brand { font-size: 15px; font-weight: 700; color: #111827; margin-bottom: 14px; letter-spacing: -0.01em; }
-.pl-kpi-value { font-size: 26px; font-weight: 800; color: #1677FF; letter-spacing: -0.04em; line-height: 1; margin-bottom: 3px; }
-.pl-kpi-label { font-size: 12px; color: #6B7280; margin-bottom: 14px; }
-.pl-kpi-row   { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 7px; }
-.pl-kpi-row-k { font-size: 12.5px; color: #6B7280; }
-.pl-kpi-row-v { font-size: 13px; font-weight: 600; color: #111827; }
-
-/* ── 다운로드 섹션 ── */
-.pl-dl-box {
-    background: #F0FDF4;
-    border: 1px solid #6EE7B7;
-    border-radius: 10px;
-    padding: 20px 24px;
+.pl-brand-kpi-head {
+    display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #F1F5F9;
 }
-.pl-dl-title { font-size: 15px; font-weight: 700; color: #065F46; margin-bottom: 4px; }
-.pl-dl-desc  { font-size: 13px; color: #047857; }
+.pl-brand-kpi-name {
+    font-size: 15px; font-weight: 700; color: #0F172A; letter-spacing: -.02em;
+}
+.pl-brand-kpi-cat {
+    font-size: 11px; font-weight: 600; color: #94A3B8; text-transform: uppercase;
+    background: #F8FAFC; border: 1px solid #E2E8F0;
+    padding: 3px 10px; border-radius: 999px; letter-spacing: .06em;
+}
+.pl-brand-kpi-row {
+    display: grid; grid-template-columns: repeat(4,1fr); gap: 0;
+}
+.pl-brand-kpi-cell { padding: 0 16px 0 0; }
+.pl-brand-kpi-cell:first-child { padding-left: 0; }
+.pl-brand-kpi-cell + .pl-brand-kpi-cell {
+    border-left: 1px solid #F1F5F9; padding-left: 16px;
+}
+.pl-bkc-lbl { font-size:11px; color:#94A3B8; margin-bottom:5px; }
+.pl-bkc-val { font-size:18px; font-weight:800; color:#0F172A; letter-spacing:-.03em; }
+.pl-bkc-val.blue { color:#1D4ED8; }
+.pl-bkc-sub { font-size:11px; color:#94A3B8; margin-top:2px; }
+
+/* ─────────────────────────────────────────
+   다운로드 박스
+───────────────────────────────────────── */
+.pl-dl-box {
+    background: linear-gradient(135deg, #F0FDF4 0%, #ECFDF5 100%);
+    border: 1px solid #A7F3D0;
+    border-radius: 12px;
+    padding: 22px 26px;
+    margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between;
+}
+.pl-dl-info {}
+.pl-dl-t { font-size:15px; font-weight:700; color:#065F46; margin-bottom:4px; }
+.pl-dl-s { font-size:13px; color:#059669; }
+.pl-dl-icon { font-size:28px; opacity:.6; }
+
+/* ─────────────────────────────────────────
+   캡션
+───────────────────────────────────────── */
+small, .st-emotion-cache-s1r2mm { color:#94A3B8 !important; font-size:12px !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────
-# 사이드바
-# ─────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### ⚡ PowerLink Planner")
-    st.markdown("---")
-    st.markdown("**사용 방법**")
-    st.markdown("""
-1. 광고주명·예산 입력
-2. 브랜드 정보 입력
-3. 제안서 생성 실행
-4. 결과 확인 후 다운로드
-""")
-    st.markdown("---")
-    st.markdown("**키워드 그룹**")
-    st.markdown("""
-- **브랜드 키워드** — 브랜드명 검색자
-- **상품 키워드** — 구매 의향 높은 검색자
-- **일반 키워드** — 카테고리 잠재 고객
-- **경쟁사 키워드** — 경쟁사 비교 검색자
-""")
-    st.markdown("---")
-    st.markdown("**참고**")
-    st.caption("예상 성과는 네이버 API 데이터 기반 시뮬레이션입니다.")
-    st.caption("같은 브랜드 재실행 시 7일간 캐시가 사용됩니다.")
-    st.markdown("---")
-    st.caption("Powered by Claude AI · Naver Search API")
-
-# ─────────────────────────────────────────────────────────────────
-# 헤더
-# ─────────────────────────────────────────────────────────────────
+# ─── 앱 바 ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div class="pl-header">
-  <div class="pl-brand">
-    <div class="pl-logo">PL</div>
-    <div>
-      <div class="pl-name">PowerLink Planner</div>
-      <div class="pl-sub">Naver Search Advertising · AI Keyword Intelligence</div>
-    </div>
+<div class="pl-bar">
+  <div class="pl-bar-l">
+    <div class="pl-bar-icon">⚡</div>
+    <span class="pl-bar-name">PowerLink Planner</span>
+    <span class="pl-bar-sep"></span>
+    <span class="pl-bar-sub">Naver Search Advertising · AI Keyword Intelligence</span>
   </div>
-  <div class="pl-chips">
-    <span class="pl-chip pl-chip-model">Claude AI</span>
-    <span class="pl-chip pl-chip-beta">BETA</span>
+  <div class="pl-bar-r">
+    <span class="pl-pill pl-pill-ai">Claude AI</span>
+    <span class="pl-pill pl-pill-beta">BETA</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────────────────────────────────
-# 세션 초기화
-# ─────────────────────────────────────────────────────────────────
+# ─── 세션 초기화 ──────────────────────────────────────────────────────────────
 for key, default in [
     ("brand_results", None), ("client_name", ""),
     ("excel_bytes", None),   ("filename", ""),
@@ -372,14 +372,14 @@ for key, default in [
         st.session_state[key] = default
 
 # ─────────────────────────────────────────────────────────────────
-# STEP 1 · 광고주 기본 정보
+# SECTION 1 · 광고주 기본 정보
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
-<div class="pl-step">
-  <div class="pl-step-num">1</div>
-  <div class="pl-step-body">
-    <div class="pl-step-title">광고주 기본 정보</div>
-    <div class="pl-step-desc">캠페인 전체 예산과 목표를 설정합니다</div>
+<div class="pl-sec">
+  <div class="pl-sec-num">1</div>
+  <div>
+    <div class="pl-sec-title">광고주 기본 정보</div>
+    <div class="pl-sec-desc">캠페인 전체 예산과 목표를 설정합니다</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -416,14 +416,14 @@ with col2:
 st.divider()
 
 # ─────────────────────────────────────────────────────────────────
-# STEP 2 · 브랜드 정보
+# SECTION 2 · 브랜드 정보
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
-<div class="pl-step">
-  <div class="pl-step-num">2</div>
-  <div class="pl-step-body">
-    <div class="pl-step-title">브랜드 정보</div>
-    <div class="pl-step-desc">브랜드별로 독립된 제안서 시트가 생성됩니다. 여러 브랜드를 동시에 추가할 수 있습니다</div>
+<div class="pl-sec">
+  <div class="pl-sec-num">2</div>
+  <div>
+    <div class="pl-sec-title">브랜드 정보</div>
+    <div class="pl-sec-desc">브랜드별로 독립된 제안서 시트가 생성됩니다. 여러 브랜드를 동시에 추가할 수 있습니다</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -487,6 +487,54 @@ def brand_form(idx, data={}):
                 for k in must_kws.split(",") if k.strip()
             ]
 
+        # ── 캠페인 특이사항 ──────────────────────────────────────────────
+        campaign_notes = st.text_area(
+            "캠페인 특이사항 / AI 참고 메모",
+            value=data.get("campaign_notes", ""),
+            key=f"notes_{idx}",
+            height=90,
+            placeholder=(
+                "예) 이번 캠페인은 제약·바이오 연구소의 노후 분석장비 처분을 타깃으로 합니다. "
+                "HPLC, 질량분석기 등 고가 장비 매입에 특화돼 있으며 전국 출장 수거 가능합니다."
+            ),
+            help="AI가 키워드 생성 시 이 내용을 참고합니다. 타깃 고객, 강점, 지역, 시즌 이슈 등 자유롭게 기입하세요.",
+        )
+
+        # ── 참고 문서 업로드 ─────────────────────────────────────────────
+        uploaded_doc = st.file_uploader(
+            "참고 문서 업로드 (PDF / TXT / MD)",
+            type=["pdf", "txt", "md"],
+            key=f"doc_{idx}",
+            help="제품 카탈로그, 마케팅 제안서 등 — Claude가 문서 내용을 참고하여 키워드를 생성합니다",
+        )
+        doc_context = ""
+        _cache_key = f"doc_result_{idx}"
+        if uploaded_doc is not None:
+            _sig = f"{uploaded_doc.name}_{uploaded_doc.size}"
+            _cached = st.session_state.get(_cache_key, {})
+            if _cached.get("sig") != _sig:
+                from modules.pdf_extractor import extract_from_uploaded_bytes
+                with st.spinner(f"문서 분석 중… {uploaded_doc.name}"):
+                    _doc_res = extract_from_uploaded_bytes(
+                        uploaded_doc.read(), uploaded_doc.name, category
+                    )
+                st.session_state[_cache_key] = {"sig": _sig, "result": _doc_res}
+            else:
+                _doc_res = _cached["result"]
+
+            doc_context = _doc_res.get("raw_text", "")
+            _ocr_tag = " · OCR" if _doc_res.get("ocr_used") else ""
+            st.caption(
+                f"문서 분석 완료{_ocr_tag}: "
+                f"{_doc_res.get('page_count', 0)}페이지 · "
+                f"키워드 {len(_doc_res.get('keywords', []))}개 추출"
+            )
+            if _doc_res.get("summary"):
+                st.caption(f"요약: {_doc_res['summary'][:150]}")
+        elif st.session_state.get(_cache_key):
+            # 업로드 취소됐으면 캐시도 비움
+            del st.session_state[_cache_key]
+
         return {
             "brand_name":             brand_name,
             "brand_key":              brand_name.replace(" ","_").lower() or f"brand_{idx}",
@@ -507,6 +555,8 @@ def brand_form(idx, data={}):
             "target_rank_general":    [3, 4, 5],
             "target_rank_brand":      [1, 2, 3],
             "brand_urls":             url_list,
+            "doc_context":            doc_context,
+            "campaign_notes":         campaign_notes,
         }
 
 brand_configs = []
@@ -528,25 +578,25 @@ with cb:
 st.divider()
 
 # ─────────────────────────────────────────────────────────────────
-# STEP 3 · 제안서 생성
+# SECTION 3 · 제안서 생성
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
-<div class="pl-step">
-  <div class="pl-step-num">3</div>
-  <div class="pl-step-body">
-    <div class="pl-step-title">제안서 생성</div>
-    <div class="pl-step-desc">AI 키워드 생성 → 네이버 광고 데이터 조회 → 예산 최적화 순서로 자동 진행됩니다</div>
+<div class="pl-sec">
+  <div class="pl-sec-num">3</div>
+  <div>
+    <div class="pl-sec-title">제안서 생성</div>
+    <div class="pl-sec-desc">AI 키워드 생성 → 네이버 광고 데이터 조회 → 예산 최적화 순서로 자동 진행됩니다</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
-<div class="pl-infobox">
-  <div class="pl-infobox-title">생성 전 체크리스트</div>
-  <div class="pl-infobox-desc">
+<div class="pl-info">
+  <div class="pl-info-t">시작 전 확인사항</div>
+  <div class="pl-info-b">
     브랜드명과 카테고리는 필수 입력 항목입니다.<br>
-    경쟁사를 입력할수록 경쟁사 키워드 품질이 향상됩니다.<br>
-    진행 중에는 페이지를 닫지 마세요.
+    경쟁사를 입력할수록 경쟁사 키워드 품질이 높아집니다.<br>
+    생성 중에는 페이지를 닫거나 새로고침하지 마세요 — 네이버 API 호출에 수 분 소요될 수 있습니다.
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -625,7 +675,7 @@ if st.button("⚡  제안서 생성 시작", type="primary", use_container_width
                     brand_profile["must_keywords"] = brand_profile.get("must_keywords", []) + [
                         {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws]
 
-                status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 중...")
+                status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 및 성과 시뮬레이션 중...")
                 result = run_single_brand(brand_profile, bname)
                 brand_results.append(result)
                 progress.progress((i + 1) / total)
@@ -659,50 +709,114 @@ if st.button("⚡  제안서 생성 시작", type="primary", use_container_width
             st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
-# STEP 4 · 결과 확인
+# SECTION 4 · 결과 확인
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.brand_results:
     st.divider()
     brand_results = st.session_state.brand_results
 
     st.markdown("""
-<div class="pl-step">
-  <div class="pl-step-num">4</div>
-  <div class="pl-step-body">
-    <div class="pl-step-title">결과 요약</div>
-    <div class="pl-step-desc">브랜드별 키워드 성과 및 예산 배분을 확인합니다</div>
+<div class="pl-sec">
+  <div class="pl-sec-num">4</div>
+  <div>
+    <div class="pl-sec-title">결과 요약</div>
+    <div class="pl-sec-desc">브랜드별 예상 성과 및 예산 배분을 확인합니다</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-    # KPI 카드
-    cols = st.columns(len(brand_results), gap="medium")
-    for i, res in enumerate(brand_results):
-        with cols[i]:
-            active  = [r for r in res["recommended"] if not r.get("not_selected")]
-            standby = res.get("standby_rows", [])
-            ratio   = res["total_cost"] / res["monthly_budget"] * 100 if res["monthly_budget"] else 0
-            t_impr  = sum((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
-                          for r in active if not r.get("is_fallback"))
-            t_clk   = sum((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
-                          for r in active if not r.get("is_fallback"))
-            st.markdown(f"""
-<div class="pl-kpi">
-  <div class="pl-kpi-cat">{res['brand_category']}</div>
-  <div class="pl-kpi-brand">{res['brand_name']}</div>
-  <div class="pl-kpi-value">{res['total_cost']:,}</div>
-  <div class="pl-kpi-label">예상 월 비용 (원) · 예산 대비 {ratio:.0f}%</div>
-  <div class="pl-kpi-row"><span class="pl-kpi-row-k">추천 키워드</span><span class="pl-kpi-row-v">{len(active)}개</span></div>
-  <div class="pl-kpi-row"><span class="pl-kpi-row-k">대기 키워드</span><span class="pl-kpi-row-v">{len(standby)}개</span></div>
-  <div class="pl-kpi-row"><span class="pl-kpi-row-k">예상 노출</span><span class="pl-kpi-row-v">{t_impr:,}</span></div>
-  <div class="pl-kpi-row"><span class="pl-kpi-row-k">예상 클릭</span><span class="pl-kpi-row-v">{t_clk:,}</span></div>
+    # 전체 집계 KPI
+    total_cost  = sum(res["total_cost"] for res in brand_results)
+    total_kw    = sum(len([r for r in res["recommended"] if not r.get("not_selected")]) for res in brand_results)
+    total_impr  = sum(
+        sum((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
+            for r in res["recommended"] if not r.get("not_selected") and not r.get("is_fallback"))
+        for res in brand_results
+    )
+    total_click = sum(
+        sum((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
+            for r in res["recommended"] if not r.get("not_selected") and not r.get("is_fallback"))
+        for res in brand_results
+    )
+
+    st.markdown(f"""
+<div class="pl-kpi-grid">
+  <div class="pl-kpi-card accent">
+    <div class="pl-kpi-lbl">예상 월 비용</div>
+    <div class="pl-kpi-val">{total_cost:,}</div>
+    <div class="pl-kpi-sub">원 (네이버 파워링크)</div>
+  </div>
+  <div class="pl-kpi-card">
+    <div class="pl-kpi-lbl">추천 키워드</div>
+    <div class="pl-kpi-val">{total_kw}</div>
+    <div class="pl-kpi-sub">개 · {len(brand_results)}개 브랜드</div>
+  </div>
+  <div class="pl-kpi-card">
+    <div class="pl-kpi-lbl">예상 노출 (Estimate)</div>
+    <div class="pl-kpi-val">{total_impr:,}</div>
+    <div class="pl-kpi-sub">월 / PC+MO 합산</div>
+  </div>
+  <div class="pl-kpi-card">
+    <div class="pl-kpi-lbl">예상 클릭 (Estimate)</div>
+    <div class="pl-kpi-val">{total_click:,}</div>
+    <div class="pl-kpi-sub">월 / PC+MO 합산</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    # 브랜드별 KPI 카드
+    for res in brand_results:
+        active  = [r for r in res["recommended"] if not r.get("not_selected")]
+        standby = res.get("standby_rows", [])
+        ratio   = res["total_cost"] / res["monthly_budget"] * 100 if res["monthly_budget"] else 0
+        b_impr  = sum((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
+                      for r in active if not r.get("is_fallback"))
+        b_click = sum((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
+                      for r in active if not r.get("is_fallback"))
+        st.markdown(f"""
+<div class="pl-brand-kpi">
+  <div class="pl-brand-kpi-head">
+    <span class="pl-brand-kpi-name">{res['brand_name']}</span>
+    <span class="pl-brand-kpi-cat">{res['brand_category']}</span>
+  </div>
+  <div class="pl-brand-kpi-row">
+    <div class="pl-brand-kpi-cell">
+      <div class="pl-bkc-lbl">예상 월 비용</div>
+      <div class="pl-bkc-val blue">{res['total_cost']:,}</div>
+      <div class="pl-bkc-sub">예산 대비 {ratio:.0f}%</div>
+    </div>
+    <div class="pl-brand-kpi-cell">
+      <div class="pl-bkc-lbl">추천 / 대기</div>
+      <div class="pl-bkc-val">{len(active)}<span style="font-size:13px;font-weight:400;color:#94A3B8"> / {len(standby)}</span></div>
+      <div class="pl-bkc-sub">키워드 수</div>
+    </div>
+    <div class="pl-brand-kpi-cell">
+      <div class="pl-bkc-lbl">예상 노출</div>
+      <div class="pl-bkc-val">{b_impr:,}</div>
+      <div class="pl-bkc-sub">월 (Estimate)</div>
+    </div>
+    <div class="pl-brand-kpi-cell">
+      <div class="pl-bkc-lbl">예상 클릭</div>
+      <div class="pl-bkc-val">{b_click:,}</div>
+      <div class="pl-bkc-sub">월 (Estimate)</div>
+    </div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
     st.divider()
 
     # 키워드 상세 탭
-    st.markdown("**추천 키워드 상세**")
+    st.markdown("""
+<div class="pl-sec">
+  <div class="pl-sec-num" style="background:#475569;">📋</div>
+  <div>
+    <div class="pl-sec-title">추천 키워드 상세</div>
+    <div class="pl-sec-desc">포함 체크를 해제하면 해당 키워드가 제외됩니다. 키워드를 추가로 입력하고 재생성할 수 있습니다</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
     tabs = st.tabs([r["brand_name"] for r in brand_results])
 
     for tab, res in zip(tabs, brand_results):
@@ -729,7 +843,7 @@ if st.session_state.brand_results:
                 })
 
             df = pd.DataFrame(rows)
-            st.caption(f"총 {len(all_rows)}개 키워드 — 포함 체크 해제 시 제외됩니다")
+            st.caption(f"총 {len(all_rows)}개 키워드 (추천 {len(active)}개 / 대기 {len(standby)}개)")
             edited = st.data_editor(
                 df,
                 column_config={
@@ -764,17 +878,17 @@ if st.session_state.brand_results:
             add_kws = [k.strip() for k in add_input.replace(",","\n").splitlines() if k.strip()]
             if st.button(f"'{bname}' 커스텀 적용 후 재생성", key=f"regen_{bname}"):
                 st.session_state.custom_add_kws[bname] = add_kws
-                st.info("저장 완료. Step 3에서 '제안서 생성 시작'을 다시 클릭하세요.")
+                st.info("저장 완료. Section 3에서 '제안서 생성 시작'을 다시 클릭하세요.")
 
     st.divider()
 
-    # ─── STEP 5 · 다운로드 ───────────────────────────────────────
+    # SECTION 5 · 다운로드
     st.markdown("""
-<div class="pl-step">
-  <div class="pl-step-num">5</div>
-  <div class="pl-step-body">
-    <div class="pl-step-title">제안서 다운로드</div>
-    <div class="pl-step-desc">네이버 파워링크 캠페인 제안서를 엑셀 파일로 저장합니다</div>
+<div class="pl-sec">
+  <div class="pl-sec-num">5</div>
+  <div>
+    <div class="pl-sec-title">제안서 다운로드</div>
+    <div class="pl-sec-desc">네이버 파워링크 캠페인 제안서를 엑셀 파일로 저장합니다</div>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -782,8 +896,11 @@ if st.session_state.brand_results:
     today = datetime.now().strftime("%Y%m%d")
     st.markdown(f"""
 <div class="pl-dl-box">
-  <div class="pl-dl-title">제안서 준비 완료</div>
-  <div class="pl-dl-desc">{st.session_state.client_name} · {len(brand_results)}개 브랜드 · {today}</div>
+  <div class="pl-dl-info">
+    <div class="pl-dl-t">제안서 준비 완료</div>
+    <div class="pl-dl-s">{st.session_state.client_name} · {len(brand_results)}개 브랜드 · {total_kw}개 추천 키워드 · {today}</div>
+  </div>
+  <div class="pl-dl-icon">📊</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -794,4 +911,4 @@ if st.session_state.brand_results:
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
     )
-    st.caption("예상 성과(노출수·클릭수·비용)는 네이버 API 데이터 기반 시뮬레이션 수치입니다.")
+    st.caption("예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. 실제 운영 성과는 광고 품질지수·예산 집행 속도에 따라 달라질 수 있습니다.")

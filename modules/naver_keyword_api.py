@@ -135,7 +135,13 @@ def _fetch_keyword_stat(original_kw, api_key, secret_key, customer_id):
         if not kw_list:
             return None
 
-        item     = kw_list[0]
+        # relKeyword가 조회한 키워드와 정확히 일치하는 항목 우선 사용
+        # (API는 hintKeyword + 연관어를 묶어 반환하므로 첫 번째가 정확한 키워드가 아닐 수 있음)
+        item = next(
+            (i for i in kw_list
+             if normalize_keyword_for_api(i.get("relKeyword", "")) == normalized_kw),
+            kw_list[0],
+        )
         pc_impr  = parse_int_like(item.get("monthlyPcQcCnt", 0))
         mo_impr  = parse_int_like(item.get("monthlyMobileQcCnt", 0))
         pc_click = parse_float_like(item.get("monthlyAvePcClkCnt", 0))

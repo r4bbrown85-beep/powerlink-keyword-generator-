@@ -41,6 +41,106 @@ def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int 
         )
         return resp.choices[0].message.content
 
+# ── 매입/구매 비즈니스 감지 ─────────────────────────────────────────────────
+_BUYING_KEYWORDS = frozenset([
+    "매입", "구매대행", "중고매입", "매각", "회수", "처분", "수거",
+    "buy", "purchase", "secondhand", "used", "refurbished",
+])
+
+def _is_buying_business(profile: dict) -> bool:
+    """카테고리·제품·브랜드명에서 '매입업체' 패턴을 감지."""
+    texts = " ".join([
+        profile.get("category", ""),
+        profile.get("brand_name", ""),
+        " ".join(profile.get("products", [])),
+        profile.get("brand_identity", {}).get("identity_statement", ""),
+    ]).lower().replace(" ", "")
+    return any(kw in texts for kw in _BUYING_KEYWORDS)
+
+
+def _build_buying_business_prompt(brand, category, products, competitors,
+                                   korean_str, must_str, campaign_goal,
+                                   identity_stmt, not_this_brand,
+                                   doc_context: str = "",
+                                   campaign_notes: str = "") -> str:
+    """
+    매입/구매 비즈니스 전용 키워드 생성 프롬프트.
+    판매자(물건을 팔고 싶은 사람)가 검색할 키워드를 생성한다.
+    """
+    products_str = ", ".join(products) if products else f"{category} 관련 품목"
+    competitors_str = ", ".join(competitors) if competitors else "동종 매입업체"
+    doc_section = f"\n━━━ 참고 문서 내용 ━━━\n{doc_context[:1500]}\n" if doc_context else ""
+    notes_section = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+
+    return f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
+이 광고주는 제품을 "판매"하는 게 아니라 특정 품목을 "매입(구매)"하는 업체다.
+따라서 키워드의 타깃은 "물건을 팔고 싶어하는 사람(판매자)"이다.
+
+━━━ 광고주 브리핑 ━━━
+브랜드: {brand}  |  한글 표기: {korean_str}
+매입 품목: {products_str}
+카테고리: {category}
+동종 경쟁 매입업체: {competitors_str}
+광고 목표: {campaign_goal}
+{f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
+{f"이 캠페인이 아닌 것: {not_this_brand}" if not_this_brand else ""}
+{f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
+{notes_section}{doc_section}
+
+━━━ 핵심 원칙 ━━━
+● 타깃: "{products_str}을 처분/판매하려는 한국 사람이 네이버에서 검색할 키워드"
+● 검색 의도: 팔고 싶다 / 처분하고 싶다 / 매각하고 싶다 / 매입업체를 찾는다
+● 절대 제외: 매입 품목을 "구매하려는" 소비자 키워드 (반대 방향)
+● 절대 제외: 관련 없는 카테고리 품목 (예: 중고 매입이어도 오토바이·가전·핸드폰 등 제외)
+● 매입 대상 품목({products_str})과 직접 관련된 키워드만 생성
+
+━━━ 4개 광고 그룹 ━━━
+
+[브랜드 키워드] 15~25개
+{brand}를 이미 알고 직접 검색하는 사람 대상
+→ {brand} + 매입/구매/연락처/위치/후기
+→ {korean_str} + 동일 조합
+
+[상품 키워드] 40~60개  ← 가장 중요
+구체적인 품목을 판매하려는 사람 대상
+→ 품목명 + 매입/팝니다/처분/판매/매각/업체
+→ 품목명 + 중고/사용/실험실/연구소
+→ 품목명 단독 (중고 거래 의도 포함)
+→ 모델명/시리즈명 + 매입/팝니다
+→ 제조사 + 품목명 + 매입/처분
+→ 브랜드 + 품목명 + 팝니다/매각
+
+[일반 키워드] 30~50개
+매입업체를 찾는 잠재 고객 (어떤 브랜드인지 모르는 상태)
+→ 중고 + {category} + 매입/처분/업체/전문
+→ 실험실/연구소/제약사/바이오 + {category} + 처분/판매
+→ {category} + 중고 + 팝니다/삽니다/업체
+→ 분야별 카테고리 장비 + 처분/매각/매입
+→ "중고 장비 매입업체", "실험실 장비 처분" 류
+
+[경쟁사 키워드] 20~35개
+동종 매입업체를 검색하는 사람에게 노출
+→ 경쟁 매입업체명 + 매입/가격/후기/비교
+→ 동종업체 + {category} + 매입
+
+━━━ 출력 형식 (JSON만, 마크다운 없음) ━━━
+{{
+  "selected_categories": ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
+  "category_descriptions": {{
+    "브랜드 키워드": "한 문장",
+    "상품 키워드": "한 문장",
+    "일반 키워드": "한 문장",
+    "경쟁사 키워드": "한 문장"
+  }},
+  "keywords_by_category": {{
+    "브랜드 키워드": ["키워드1", "키워드2"],
+    "상품 키워드": ["키워드1", "키워드2"],
+    "일반 키워드": ["키워드1", "키워드2"],
+    "경쟁사 키워드": ["키워드1", "키워드2"]
+  }}
+}}"""
+
+
 # SNS/소셜미디어 플랫폼 — 해당 브랜드가 SNS 툴이 아닌 경우 키워드로 부적절
 _SNS_PLATFORMS = frozenset([
     "인스타그램", "instagram", "페이스북", "facebook", "유튜브", "youtube",
@@ -212,6 +312,8 @@ def generate_ai_keyword_plan(profile):
     general_themes = profile.get("general_keyword_themes", [])
     sales_channels = profile.get("sales_channels", [])
     campaign_goal  = profile.get("campaign_goal", "구매전환")
+    doc_context    = profile.get("doc_context", "")       # PDF/문서 추출 텍스트
+    campaign_notes = profile.get("campaign_notes", "")   # 사용자 캠페인 메모
 
     # 브랜드 정체성 문서 (setup_profile에서 생성)
     brand_identity = profile.get("brand_identity", {})
@@ -234,6 +336,50 @@ def generate_ai_keyword_plan(profile):
     korean_str      = ", ".join(korean_names) if korean_names else "없음"
     must_str        = ", ".join(must_kw_list) if must_kw_list else "없음"
 
+    # ── 매입 비즈니스 분기 ──────────────────────────────────────────────────
+    is_buying = _is_buying_business(profile)
+    if is_buying:
+        print(f"    [AI키워드] 매입 비즈니스 감지 → 판매자 의도 키워드 모드 적용")
+        user_msg = _build_buying_business_prompt(
+            brand, category, products, competitors,
+            korean_str, must_str, campaign_goal,
+            identity_stmt, not_this_brand, doc_context, campaign_notes
+        )
+        content = _call_llm(
+            system=(
+                "너는 10년 경력의 네이버 파워링크 검색광고 전문 컨설턴트다. "
+                "이 광고주는 특정 품목을 매입하는 업체이므로, "
+                "물건을 팔고 싶은 사람(판매자)이 검색할 키워드만 생성한다. "
+                "절대 구매자 의도 키워드나 카테고리와 무관한 품목 키워드를 생성하지 않는다. "
+                "반드시 JSON만 출력한다."
+            ),
+            user=user_msg,
+            temperature=0.2,
+            max_tokens=4096,
+        )
+        data = _safe_json_loads(content)
+        keywords_by_category = data.get("keywords_by_category", {})
+        category_descriptions = data.get("category_descriptions", {})
+        selected_categories   = data.get("selected_categories", [])
+        cleaned = _dedupe_keywords_by_category(keywords_by_category)
+        for cat in ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]:
+            cleaned.setdefault(cat, [])
+            category_descriptions.setdefault(cat, f"{cat} 중심의 검색 수요를 확보하기 위한 키워드")
+        cleaned = _rule_based_brand_filter(cleaned, profile)
+        result = {
+            "selected_categories":   ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
+            "category_descriptions": category_descriptions,
+            "keywords_by_category":  cleaned
+        }
+        _save_ai_cache(cache_key, brand, result)
+        return result
+
+    # ── 일반 판매 비즈니스 프롬프트 ─────────────────────────────────────────
+    doc_section = ""
+    if doc_context:
+        doc_section = f"\n━━━ 참고 문서 내용 (제품 카탈로그 / 마케팅 문서) ━━━\n{doc_context[:1500]}\n"
+    notes_section = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+
     # 광고주 브리핑 → 소비자 구매 검색 시뮬레이션 방식
     user_msg = f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
 SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를 제안해줘.
@@ -247,6 +393,7 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것 (제외 대상): {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
+{notes_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
 ● "{products_str}을 구매하려는 한국 소비자가 네이버에서 실제로 검색할 검색어"만 생성한다

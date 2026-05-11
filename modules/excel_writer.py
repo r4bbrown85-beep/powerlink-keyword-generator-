@@ -317,8 +317,9 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         c_mo_cost = sum(_safe_int(r.get("mo_sim_cost",0))        for r in kws)
         c_bid     = int(sum(_safe_int(r.get("proposed_bid",0)) for r in kws)/len(kws)) if kws else 0
 
-        _write_cell(ws, row,  2, f"[{cat} 소계]", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-        _write_cell(ws, row,  3, f"{len(kws)}개",  bg=COLOR_SUBTOTAL_BG)
+        # 소계 행: 키워드 칼럼은 비워두고 구분 칼럼에 소계 표시 (키워드로 오인 방지)
+        _write_cell(ws, row,  2, "",                bg=COLOR_SUBTOTAL_BG, align_h="left")
+        _write_cell(ws, row,  3, f"◀ {cat} 소계 ({len(kws)}개)", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
         _write_cell(ws, row,  4, c_bid,     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row,  5, c_pc_imp,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row,  6, c_pc_clk,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
@@ -475,9 +476,11 @@ def _write_all_sheet(ws, rows):
     for i in range(3, 15):
         ws.column_dimensions[get_column_letter(i)].width = 13
 
+    # pc_impr/mo_impr = 월간 검색량(쿼리수), 광고 노출수 아님
+    # pc_click/mo_click = 시장 전체 평균 클릭수 (키워드툴 API 기준)
     headers = ["키워드","카테고리","키워드유형","기본점수","추천점수","소스",
-               "PC노출수","MO노출수","PC클릭수","MO클릭수","CTR",
-               "경쟁도","기준입찰가","월검색량"]
+               "PC월검색량","MO월검색량","PC평균클릭(시장)","MO평균클릭(시장)","CTR",
+               "경쟁도","기준입찰가","월검색량합계"]
     for i, h in enumerate(headers, 1):
         _write_cell(ws, 1, i, h, bold=True, bg=COLOR_HEADER_BG)
 
@@ -569,10 +572,10 @@ def _write_standby_sheet(ws, standby_rows, advertiser):
             row += 1
             total += 1
 
-        # 소계
-        _write_cell(ws, row, 2, f"[{cat} 소계]",
+        # 소계 (키워드 칼럼 비워서 오인 방지)
+        _write_cell(ws, row, 2, "", bg=COLOR_SUBTOTAL_BG, align_h="left")
+        _write_cell(ws, row, 3, f"◀ {cat} 소계 ({len(kws)}개)",
                     bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-        _write_cell(ws, row, 3, f"{len(kws)}개", bg=COLOR_SUBTOTAL_BG)
         _write_cell(ws, row, 4, "", bg=COLOR_SUBTOTAL_BG)
         row += 2
 

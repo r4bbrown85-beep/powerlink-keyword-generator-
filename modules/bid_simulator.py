@@ -296,6 +296,10 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None):
         target_rank = int(cat_cfg.get("target_rank", 5))
         bid         = int(round(base_cpc / 10) * 10)
 
+        # plAvgDepth는 공식 문서가 없어 경쟁 강도와의 상관관계가 불명확하므로
+        # Fallback bid는 compIdx 기반 FALLBACK_CPC_BY_COMPETITION만 사용
+        bid = int(round(base_cpc / 10) * 10)
+
     options = [{
         "keyword":         keyword,
         "category":        category,
