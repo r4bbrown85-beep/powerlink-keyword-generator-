@@ -386,7 +386,7 @@ st.markdown("""
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    client_name = st.text_input("광고주명 *", placeholder="예) 드리미코리아")
+    client_name = st.text_input("광고주명 *", placeholder="예) LG전자")
     monthly_budget = st.number_input(
         "월 예산 (원) *",
         min_value=100_000, max_value=100_000_000,
@@ -408,7 +408,7 @@ with col2:
     season_info = ""
     if "신제품 출시" in campaign_goals:
         new_product_info = st.text_input("신제품 정보",
-            placeholder="예) 드리미 V20, 초경량 무선청소기, 2026년 5월 출시")
+            placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시")
     if "시즌 프로모션" in campaign_goals:
         season_info = st.text_input("시즌/이슈 내용",
             placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인")
