@@ -27,11 +27,12 @@ def _call_llm(system: str, user: str, temperature: float = 0.1, max_tokens: int 
         import anthropic as _anthropic
         c = _anthropic.Anthropic(api_key=anthropic_key)
         resp = c.messages.create(
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             max_tokens=max_tokens,
             temperature=temperature,
             system=system,
             messages=[{"role": "user", "content": user}],
+            timeout=40,
         )
         return resp.content[0].text
     else:

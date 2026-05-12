@@ -621,105 +621,116 @@ if st.button("⚡  제안서 생성 시작", type="primary", use_container_width
             valid = False
 
     if valid:
-        goal_str = ", ".join(campaign_goals)
-        if new_product_info: goal_str += f" | 신제품: {new_product_info}"
-        if season_info:       goal_str += f" | 시즌: {season_info}"
+        # 버튼 클릭 상태가 rerun 중 유실되지 않도록 세션 플래그로 저장
+        st.session_state._gen_client_name   = client_name
+        st.session_state._gen_brand_configs = brand_configs
+        st.session_state._gen_goal_str      = (
+            ", ".join(campaign_goals)
+            + (f" | 신제품: {new_product_info}" if new_product_info else "")
+            + (f" | 시즌: {season_info}" if season_info else "")
+        )
+        st.session_state._gen_pending = True
+        st.rerun()
 
-        client_profile = {
-            "client":           client_name,
-            "monthly_budget":   monthly_budget,
-            "sales_channels":   [],
-            "campaign_goal":    goal_str,
-            "new_product_info": new_product_info,
-            "season_info":      season_info,
-            "brands":           brand_configs,
-        }
+if st.session_state.get("_gen_pending"):
+    st.session_state._gen_pending = False
+    client_name   = st.session_state._gen_client_name
+    brand_configs = st.session_state._gen_brand_configs
+    goal_str      = st.session_state._gen_goal_str
 
-        brand_results = []
-        progress      = st.progress(0)
-        status        = st.empty()
-        total         = len(brand_configs)
+    client_profile = {
+        "client":           client_name,
+        "monthly_budget":   monthly_budget,
+        "sales_channels":   [],
+        "campaign_goal":    goal_str,
+        "brands":           brand_configs,
+    }
 
-        try:
-            from main_multi import run_single_brand, make_brand_profile, save_multi_brand_excel
-            from modules.url_extractor import extract_keywords_from_urls
-            from modules.setup_profile import enrich_brand_config
+    brand_results = []
+    progress      = st.progress(0)
+    status        = st.empty()
+    total         = len(brand_configs)
 
-            for i, brand_cfg in enumerate(brand_configs):
-                bname = brand_cfg["brand_name"]
+    try:
+        from main_multi import run_single_brand, make_brand_profile, save_multi_brand_excel
+        from modules.url_extractor import extract_keywords_from_urls
+        from modules.setup_profile import enrich_brand_config
 
-                url_result = {}
-                if brand_cfg.get("brand_urls"):
-                    status.info(f"[{i+1}/{total}] **{bname}** — URL 분석 중...")
-                    try:
-                        url_result = extract_keywords_from_urls(brand_cfg["brand_urls"])
-                        for p in url_result.get("products", []):
-                            if p not in brand_cfg.get("products", []):
-                                brand_cfg.setdefault("products", []).append(p)
-                    except Exception as e:
-                        st.warning(f"URL 분석 실패: {e}")
+        for i, brand_cfg in enumerate(brand_configs):
+            bname = brand_cfg["brand_name"]
 
-                status.info(f"[{i+1}/{total}] **{bname}** — 브랜드 분석 중...")
+            url_result = {}
+            if brand_cfg.get("brand_urls"):
+                status.info(f"[{i+1}/{total}] **{bname}** — URL 분석 중...")
                 try:
-                    brand_cfg = enrich_brand_config(brand_cfg,
-                        url_keywords=url_result.get("keywords", []))
+                    url_result = extract_keywords_from_urls(brand_cfg["brand_urls"])
+                    for p in url_result.get("products", []):
+                        if p not in brand_cfg.get("products", []):
+                            brand_cfg.setdefault("products", []).append(p)
                 except Exception as e:
-                    st.warning(f"브랜드 분석 실패: {e}")
+                    st.warning(f"URL 분석 실패: {e}")
 
-                if url_result.get("keywords"):
-                    brand_cfg["general_keyword_themes"] = list(set(
-                        brand_cfg.get("general_keyword_themes", [])
-                        + url_result["keywords"][:15]
-                    ))
+            status.info(f"[{i+1}/{total}] **{bname}** — 브랜드 분석 중 (AI)...")
+            try:
+                brand_cfg = enrich_brand_config(brand_cfg,
+                    url_keywords=url_result.get("keywords", []))
+            except Exception as e:
+                st.warning(f"브랜드 분석 실패: {e}")
 
-                exc_kws = st.session_state.custom_exc_kws.get(bname, [])
-                if exc_kws:
-                    brand_cfg["exclude_keywords"] = list(set(
-                        brand_cfg.get("exclude_keywords", []) + exc_kws))
+            if url_result.get("keywords"):
+                brand_cfg["general_keyword_themes"] = list(set(
+                    brand_cfg.get("general_keyword_themes", [])
+                    + url_result["keywords"][:15]
+                ))
 
-                brand_profile = make_brand_profile(client_profile, brand_cfg)
+            exc_kws = st.session_state.custom_exc_kws.get(bname, [])
+            if exc_kws:
+                brand_cfg["exclude_keywords"] = list(set(
+                    brand_cfg.get("exclude_keywords", []) + exc_kws))
 
-                add_kws = st.session_state.custom_add_kws.get(bname, [])
-                if add_kws:
-                    brand_profile["must_keywords"] = brand_profile.get("must_keywords", []) + [
-                        {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws]
+            brand_profile = make_brand_profile(client_profile, brand_cfg)
 
-                status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 및 성과 시뮬레이션 중...")
-                result = run_single_brand(brand_profile, bname)
-                brand_results.append(result)
-                progress.progress((i + 1) / total)
+            add_kws = st.session_state.custom_add_kws.get(bname, [])
+            if add_kws:
+                brand_profile["must_keywords"] = brand_profile.get("must_keywords", []) + [
+                    {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws]
 
-            status.info("엑셀 파일 생성 중...")
-            ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"output/{client_name}_proposal_{ts}.xlsx"
-            os.makedirs("output", exist_ok=True)
-            save_multi_brand_excel(brand_results, filename, client_name)
+            status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 중... (30~60초 소요)")
+            result = run_single_brand(brand_profile, bname)
+            brand_results.append(result)
+            progress.progress((i + 1) / total)
 
-            with open(filename, "rb") as f:
-                excel_bytes = f.read()
+        status.info("엑셀 파일 생성 중...")
+        ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"output/{client_name}_proposal_{ts}.xlsx"
+        os.makedirs("output", exist_ok=True)
+        save_multi_brand_excel(brand_results, filename, client_name)
 
-            # 재생성 시 키워드 에디터 초기 df 캐시 초기화
-            for _k in [k for k in st.session_state if k.startswith("_df_init_")]:
-                del st.session_state[_k]
+        with open(filename, "rb") as f:
+            excel_bytes = f.read()
 
-            st.session_state.brand_results = brand_results
-            st.session_state.client_name   = client_name
-            st.session_state.excel_bytes   = excel_bytes
-            st.session_state.filename      = filename
+        # 재생성 시 키워드 에디터 초기 df 캐시 초기화
+        for _k in [k for k in st.session_state if k.startswith("_df_init_")]:
+            del st.session_state[_k]
 
-            progress.progress(1.0)
-            status.empty()
+        st.session_state.brand_results = brand_results
+        st.session_state.client_name   = client_name
+        st.session_state.excel_bytes   = excel_bytes
+        st.session_state.filename      = filename
 
-            n_kw = sum(
-                len([r for r in res["recommended"] if not r.get("not_selected")])
-                for res in brand_results
-            )
-            st.success(f"제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
+        progress.progress(1.0)
+        status.empty()
 
-        except Exception as e:
-            st.error(f"오류: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+        n_kw = sum(
+            len([r for r in res["recommended"] if not r.get("not_selected")])
+            for res in brand_results
+        )
+        st.success(f"제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
+
+    except Exception as e:
+        st.error(f"오류: {e}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
 # 키워드 에디터 Fragment — 체크박스 클릭 시 이 블록만 리런 (스크롤 유지)

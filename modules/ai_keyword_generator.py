@@ -28,6 +28,7 @@ def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int 
             temperature=temperature,
             system=system,
             messages=[{"role": "user", "content": user}],
+            timeout=90,
         )
         return resp.content[0].text
     else:
