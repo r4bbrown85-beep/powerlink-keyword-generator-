@@ -7,3 +7,5 @@ beautifulsoup4==4.14.3
 openpyxl==3.1.5
 python-dotenv==1.2.2
 lxml
+pymupdf
+pdfplumber
