@@ -502,38 +502,46 @@ def brand_form(idx, data={}):
         )
 
         # ── 참고 문서 업로드 ─────────────────────────────────────────────
-        uploaded_doc = st.file_uploader(
-            "참고 문서 업로드 (PDF / TXT / MD)",
+        uploaded_docs = st.file_uploader(
+            "참고 문서 업로드 (PDF / TXT / MD, 여러 파일 가능)",
             type=["pdf", "txt", "md"],
+            accept_multiple_files=True,
             key=f"doc_{idx}",
             help="제품 카탈로그, 마케팅 제안서 등 — Claude가 문서 내용을 참고하여 키워드를 생성합니다",
         )
         doc_context = ""
         _cache_key = f"doc_result_{idx}"
-        if uploaded_doc is not None:
-            _sig = f"{uploaded_doc.name}_{uploaded_doc.size}"
+        if uploaded_docs:
+            from modules.pdf_extractor import extract_from_uploaded_bytes
+            # 파일별 캐시: {sig: raw_text} 딕셔너리로 관리
             _cached = st.session_state.get(_cache_key, {})
-            if _cached.get("sig") != _sig:
-                from modules.pdf_extractor import extract_from_uploaded_bytes
-                with st.spinner(f"문서 분석 중… {uploaded_doc.name}"):
-                    _doc_res = extract_from_uploaded_bytes(
-                        uploaded_doc.read(), uploaded_doc.name, category
-                    )
-                st.session_state[_cache_key] = {"sig": _sig, "result": _doc_res}
-            else:
-                _doc_res = _cached["result"]
-
-            doc_context = _doc_res.get("raw_text", "")
-            _ocr_tag = " · OCR" if _doc_res.get("ocr_used") else ""
+            _new_cache = {}
+            _all_texts = []
+            _total_pages = 0
+            _total_kws = 0
+            _ocr_used = False
+            for _f in uploaded_docs:
+                _sig = f"{_f.name}_{_f.size}"
+                if _sig in _cached:
+                    _doc_res = _cached[_sig]
+                else:
+                    with st.spinner(f"문서 분석 중… {_f.name}"):
+                        _doc_res = extract_from_uploaded_bytes(_f.read(), _f.name, category)
+                _new_cache[_sig] = _doc_res
+                if _doc_res.get("raw_text"):
+                    _all_texts.append(f"[{_f.name}]\n{_doc_res['raw_text']}")
+                _total_pages += _doc_res.get("page_count", 0)
+                _total_kws  += len(_doc_res.get("keywords", []))
+                if _doc_res.get("ocr_used"):
+                    _ocr_used = True
+            st.session_state[_cache_key] = _new_cache
+            doc_context = "\n\n".join(_all_texts)
+            _ocr_tag = " · OCR" if _ocr_used else ""
             st.caption(
                 f"문서 분석 완료{_ocr_tag}: "
-                f"{_doc_res.get('page_count', 0)}페이지 · "
-                f"키워드 {len(_doc_res.get('keywords', []))}개 추출"
+                f"{len(uploaded_docs)}개 파일 · {_total_pages}페이지 · 키워드 {_total_kws}개 추출"
             )
-            if _doc_res.get("summary"):
-                st.caption(f"요약: {_doc_res['summary'][:150]}")
         elif st.session_state.get(_cache_key):
-            # 업로드 취소됐으면 캐시도 비움
             del st.session_state[_cache_key]
 
         return {
