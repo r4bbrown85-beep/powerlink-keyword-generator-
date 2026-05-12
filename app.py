@@ -698,6 +698,10 @@ if st.button("⚡  제안서 생성 시작", type="primary", use_container_width
             with open(filename, "rb") as f:
                 excel_bytes = f.read()
 
+            # 재생성 시 키워드 에디터 초기 df 캐시 초기화
+            for _k in [k for k in st.session_state if k.startswith("_df_init_")]:
+                del st.session_state[_k]
+
             st.session_state.brand_results = brand_results
             st.session_state.client_name   = client_name
             st.session_state.excel_bytes   = excel_bytes
@@ -716,6 +720,70 @@ if st.button("⚡  제안서 생성 시작", type="primary", use_container_width
             st.error(f"오류: {e}")
             import traceback
             st.code(traceback.format_exc())
+
+# ─────────────────────────────────────────────────────────────────
+# 키워드 에디터 Fragment — 체크박스 클릭 시 이 블록만 리런 (스크롤 유지)
+# ─────────────────────────────────────────────────────────────────
+@st.fragment
+def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
+    _init_key = f"_df_init_{bname}"
+
+    # 초기 df를 최초 1회만 생성해 고정 — 매번 재생성하면 data_editor 상태 충돌
+    if _init_key not in st.session_state:
+        exc_set = set(st.session_state.custom_exc_kws.get(bname, []))
+        rows = []
+        for r in all_rows:
+            kw = r.get("keyword", "")
+            rows.append({
+                "포함":      kw not in exc_set,
+                "키워드":    kw,
+                "그룹":      r.get("category", ""),
+                "구분":      r.get("keyword_type_label", r.get("keyword_type", "")),
+                "PC 검색수": int(r.get("pc_impr", 0) or 0),
+                "MO 검색수": int(r.get("mo_impr", 0) or 0),
+                "경쟁도":    r.get("competition", "-"),
+                "예상비용":  int((r.get("pc_cost") or 0) + (r.get("mo_cost") or 0)),
+                "상태":      "대기" if r.get("not_selected") else "추천",
+            })
+        st.session_state[_init_key] = pd.DataFrame(rows)
+
+    st.caption(f"총 {len(all_rows)}개 키워드 (추천 {active_count}개 / 대기 {standby_count}개)")
+    edited = st.data_editor(
+        st.session_state[_init_key],
+        column_config={
+            "포함":      st.column_config.CheckboxColumn("포함", width="small"),
+            "키워드":    st.column_config.TextColumn("키워드", width="medium"),
+            "그룹":      st.column_config.TextColumn("그룹", width="medium"),
+            "구분":      st.column_config.TextColumn("구분", width="small"),
+            "PC 검색수": st.column_config.NumberColumn("PC 검색수", format="%d"),
+            "MO 검색수": st.column_config.NumberColumn("MO 검색수", format="%d"),
+            "경쟁도":    st.column_config.TextColumn("경쟁도", width="small"),
+            "예상비용":  st.column_config.NumberColumn("예상비용", format="%d원"),
+            "상태":      st.column_config.TextColumn("상태", width="small"),
+        },
+        hide_index=True,
+        use_container_width=True,
+        key=f"tbl_{bname}",
+    )
+
+    excluded = edited[edited["포함"] == False]["키워드"].tolist()
+    st.session_state.custom_exc_kws[bname] = excluded
+    if excluded:
+        st.caption(f"제외됨: {', '.join(excluded[:6])}{'...' if len(excluded) > 6 else ''}")
+
+    st.divider()
+    st.markdown("**키워드 추가**")
+    add_input = st.text_area(
+        "추가할 키워드 (쉼표 또는 줄바꿈으로 구분)",
+        key=f"add_{bname}",
+        placeholder="예) LG그램 신제품\n학생 노트북 추천",
+        height=76,
+    )
+    add_kws = [k.strip() for k in add_input.replace(",", "\n").splitlines() if k.strip()]
+    if st.button(f"'{bname}' 커스텀 적용 후 재생성", key=f"regen_{bname}"):
+        st.session_state.custom_add_kws[bname] = add_kws
+        st.info("저장 완료. Section 3에서 '제안서 생성 시작'을 다시 클릭하세요.")
+
 
 # ─────────────────────────────────────────────────────────────────
 # SECTION 4 · 결과 확인
@@ -833,61 +901,7 @@ if st.session_state.brand_results:
             bname    = res["brand_name"]
             active   = [r for r in res["recommended"] if not r.get("not_selected")]
             standby  = res.get("standby_rows", [])
-            all_rows = active + standby
-            exc_set  = set(st.session_state.custom_exc_kws.get(bname, []))
-
-            rows = []
-            for r in all_rows:
-                kw = r.get("keyword", "")
-                rows.append({
-                    "포함":      kw not in exc_set,
-                    "키워드":    kw,
-                    "그룹":      r.get("category", ""),
-                    "구분":      r.get("keyword_type_label", r.get("keyword_type", "")),
-                    "PC 검색수": int(r.get("pc_impr", 0) or 0),
-                    "MO 검색수": int(r.get("mo_impr", 0) or 0),
-                    "경쟁도":    r.get("competition", "-"),
-                    "예상비용":  int((r.get("pc_cost") or 0) + (r.get("mo_cost") or 0)),
-                    "상태":      "대기" if r.get("not_selected") else "추천",
-                })
-
-            df = pd.DataFrame(rows)
-            st.caption(f"총 {len(all_rows)}개 키워드 (추천 {len(active)}개 / 대기 {len(standby)}개)")
-            edited = st.data_editor(
-                df,
-                column_config={
-                    "포함":      st.column_config.CheckboxColumn("포함", width="small"),
-                    "키워드":    st.column_config.TextColumn("키워드", width="medium"),
-                    "그룹":      st.column_config.TextColumn("그룹", width="medium"),
-                    "구분":      st.column_config.TextColumn("구분", width="small"),
-                    "PC 검색수": st.column_config.NumberColumn("PC 검색수", format="%d"),
-                    "MO 검색수": st.column_config.NumberColumn("MO 검색수", format="%d"),
-                    "경쟁도":    st.column_config.TextColumn("경쟁도", width="small"),
-                    "예상비용":  st.column_config.NumberColumn("예상비용", format="%d원"),
-                    "상태":      st.column_config.TextColumn("상태", width="small"),
-                },
-                hide_index=True,
-                use_container_width=True,
-                key=f"tbl_{bname}"
-            )
-
-            excluded = edited[edited["포함"] == False]["키워드"].tolist()
-            st.session_state.custom_exc_kws[bname] = excluded
-            if excluded:
-                st.caption(f"제외됨: {', '.join(excluded[:6])}{'...' if len(excluded)>6 else ''}")
-
-            st.divider()
-            st.markdown("**키워드 추가**")
-            add_input = st.text_area(
-                "추가할 키워드 (쉼표 또는 줄바꿈으로 구분)",
-                key=f"add_{bname}",
-                placeholder="예) LG그램 신제품\n학생 노트북 추천",
-                height=76
-            )
-            add_kws = [k.strip() for k in add_input.replace(",","\n").splitlines() if k.strip()]
-            if st.button(f"'{bname}' 커스텀 적용 후 재생성", key=f"regen_{bname}"):
-                st.session_state.custom_add_kws[bname] = add_kws
-                st.info("저장 완료. Section 3에서 '제안서 생성 시작'을 다시 클릭하세요.")
+            _kw_editor_fragment(bname, active + standby, len(active), len(standby))
 
     st.divider()
 
