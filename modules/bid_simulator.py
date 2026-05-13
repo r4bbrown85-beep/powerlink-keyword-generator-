@@ -769,8 +769,8 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         no_cap_selected = [r for r in all_records
                            if r["keyword"] in selected_map
                            and cat_map.get(r["category"], {}).get("max_budget_ratio") is None]
-        # 예산의 90%까지 적극적으로 순위 업그레이드
-        upgrade_target = min(total_budget * 0.90 - accumulated, budget_remaining)
+        # 예산 100%까지 적극적으로 순위 업그레이드
+        upgrade_target = min(total_budget * 1.00 - accumulated, budget_remaining)
         if upgrade_target > 0:
             _upgrade_selected_with_budget(no_cap_selected, upgrade_target, selected_map)
         accumulated = sum(_real_cost(v) for v in selected_map.values())

@@ -13,17 +13,18 @@ load_dotenv()
 _openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int = 4096) -> str:
+def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int = 4096,
+              model: str = None) -> str:
     """
     Claude 우선, ANTHROPIC_API_KEY 없으면 OpenAI(gpt-4o) 폴백.
-    호출 코드는 모델에 무관하게 동일하게 작성 가능.
+    model 인자로 특정 모델 지정 가능 (기본: claude-sonnet-4-6).
     """
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     if anthropic_key:
         import anthropic as _anthropic
         c = _anthropic.Anthropic(api_key=anthropic_key)
         resp = c.messages.create(
-            model="claude-sonnet-4-6",
+            model=model or "claude-sonnet-4-6",
             max_tokens=max_tokens,
             temperature=temperature,
             system=system,
@@ -402,6 +403,10 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 ● 구매 의도 없는 검색어 (뉴스·주가·채용·SNS·학술·뜻·폐기 등) 완전 제외
 ● 제품명에 포함된 짧은 영문이 다른 영어 단어의 부분이 되는 키워드 제외
   (예: 제품명 "gram" → "grammar", "instagram" 등 완전히 다른 단어 제외)
+● 브랜드명·제품명이 식품·음료·과자·생활용품·타 업종 브랜드와 동일하거나 유사한 경우,
+  해당 타 업종 연상 키워드 완전 제외
+  (예: 게임명 "이클립스" → "이클립스포도", "이클립스캔디", "이클립스껌" 등 식품류 제외)
+● 반드시 {category} 카테고리와 직접 연관된 검색 의도를 가진 키워드만 생성
 
 ━━━ 4개 광고 그룹 ━━━
 
@@ -474,9 +479,10 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
         cleaned.setdefault(cat, [])
         category_descriptions.setdefault(cat, f"{cat} 중심의 검색 수요를 확보하기 위한 키워드")
 
-    # 규칙 기반 필터 (SNS, 부정의도, forbidden_fragments)
-    # AI 이중검증 제거 — 생성 단계 품질에 집중, 빠른 규칙필터만 유지
+    # 1차: 규칙 기반 필터 (SNS, 부정의도, forbidden_fragments)
     cleaned = _rule_based_brand_filter(cleaned, profile)
+    # 2차: AI 검증 — 동음이의어·무관 카테고리 키워드 제거 (Haiku로 빠르게)
+    cleaned = _verify_keywords_by_ai(cleaned, brand, category, brand_identity, products)
 
     result = {
         "selected_categories":   ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
@@ -557,6 +563,7 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
             system=(
                 "너는 네이버 검색광고 키워드 관련성 검증 전문가다. "
                 "캠페인 광고 제품 범위 밖의 키워드, 카테고리와 직접 관련 없는 키워드, "
+                "브랜드명이 동음이의어로 사용되는 타 업종(식품·음료·과자·생활용품 등) 연상 키워드, "
                 "다른 브랜드/서비스와 혼동되는 키워드를 정확하게 찾아낸다. "
                 "의심스러운 키워드는 제거하는 방향으로 판단한다. "
                 "반드시 JSON만 출력한다."
@@ -564,6 +571,7 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
             user=verify_prompt,
             temperature=0.0,
             max_tokens=2048,
+            model="claude-haiku-4-5-20251001",
         )
         data = _safe_json_loads(content)
         remove_set = set(data.get("remove", []))
