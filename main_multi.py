@@ -1003,7 +1003,8 @@ def save_multi_brand_excel(brand_results, filename, client_name):
 
     for result in brand_results:
         brand_name  = result["brand_name"]
-        short_name  = brand_name[:12] if len(brand_name) > 12 else brand_name
+        _safe = brand_name.translate(str.maketrans('', '', r'\/:?*[]'))
+        short_name  = _safe[:12] if len(_safe) > 12 else _safe
         recommended = result["recommended"]
 
         # _write_proposal_sheet는 proposed_bid, pc_sim_impressions 등 필드 필요

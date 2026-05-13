@@ -610,7 +610,13 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True):
+if not st.session_state.brand_results:
+    _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True)
+else:
+    st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
+    _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
+
+if _gen_btn:
     valid = True
     if not client_name.strip():
         st.error("광고주명을 입력해주세요.")
@@ -791,9 +797,10 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
         height=76,
     )
     add_kws = [k.strip() for k in add_input.replace(",", "\n").splitlines() if k.strip()]
-    if st.button(f"'{bname}' 커스텀 적용 후 재생성", key=f"regen_{bname}"):
+    if st.button(f"⚡  {bname} — 커스텀 적용 후 재생성", key=f"regen_{bname}", type="primary", use_container_width=True):
         st.session_state.custom_add_kws[bname] = add_kws
-        st.info("저장 완료. Section 3에서 '제안서 생성 시작'을 다시 클릭하세요.")
+        st.session_state._gen_pending = True
+        st.rerun(scope="app")
 
 
 # ─────────────────────────────────────────────────────────────────
