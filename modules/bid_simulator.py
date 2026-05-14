@@ -1224,16 +1224,30 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
         "add_cost":   0,
     })
 
+    # bid_up_rows는 이미 추가 클릭 합산 기준으로 정렬됨 (효율 높은 순)
     for budget in scenario_budgets:
         add_budget = budget - cur_cost
         add_cost   = 0
         add_clicks = 0
         add_kws    = 0
+
+        # 1순위: 기존 키워드 입찰가 업그레이드 (클릭 증가 효율 높은 순)
+        for bur in bid_up_rows:
+            extra_cost   = (bur.get("add_pc_cost", 0) or 0) + (bur.get("add_mo_cost", 0) or 0)
+            extra_clicks = (bur.get("add_pc_clicks", 0) or 0) + (bur.get("add_mo_clicks", 0) or 0)
+            if extra_cost <= 0:
+                continue
+            if add_cost + extra_cost <= add_budget:
+                add_cost   += extra_cost
+                add_clicks += extra_clicks
+
+        # 2순위: 신규 키워드 추가 (진입 비용 낮은 순)
         for nkw in new_kw_rows:
-            kw_cost = nkw["pc_cost"] + nkw["mo_cost"]
+            kw_cost   = nkw["pc_cost"] + nkw["mo_cost"]
+            kw_clicks = nkw["pc_clicks"] + nkw["mo_clicks"]
             if add_cost + kw_cost <= add_budget:
                 add_cost   += kw_cost
-                add_clicks += nkw["pc_clicks"] + nkw["mo_clicks"]
+                add_clicks += kw_clicks
                 add_kws    += 1
 
         pct = int((budget / base_budget - 1) * 100)
