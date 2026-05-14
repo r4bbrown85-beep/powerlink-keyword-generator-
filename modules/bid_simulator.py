@@ -10,7 +10,10 @@ bid_simulator.py
 """
 import json
 import os
-from modules.naver_estimate import get_estimate_performance, get_rank_based_estimates
+from modules.naver_estimate import (
+    get_estimate_performance, get_rank_based_estimates,
+    get_median_bid_batch, get_exposure_min_bid_batch,
+)
 
 # ── 기본값 (profile에 keyword_categories 없을 때 fallback) ────────
 _DEFAULT_CATEGORIES = [
@@ -263,11 +266,20 @@ def _cap_options_by_budget(options, category, total_budget, cat_map=None):
     return capped
 
 
-def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None):
+def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None,
+                             median_bid_pc=0, median_bid_mo=0,
+                             exposure_min_bid_pc=0, exposure_min_bid_mo=0):
     """
     Estimate API 데이터 없는 키워드 처리.
     노출/클릭/비용은 0으로 처리하고 입찰가만 제안.
     예산 계산에서 제외되지만 제안서에는 포함됨.
+
+    입찰가 결정 우선순위:
+      브랜드: 70원 고정
+      일반/상품/경쟁사:
+        1. median_bid (실제 시장 중간값) ← 가장 정확
+        2. max(median_bid, exposure_min_bid) ← 노출 최소 입찰가 이상 보장
+        3. 위 데이터 없으면 competition 기반 fallback
     """
     if cat_map is None:
         cat_map = _get_cat_map()
@@ -286,25 +298,42 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None):
     priority_weight = get_priority_weight(keyword_row, cat_map)
     cat_type        = cat_cfg.get("type", "general")
 
-    # 브랜드 키워드: 검색량 없어도 70원 1위로 제안 (브랜딩 목적)
     if cat_type == "brand":
-        bid         = 70
+        pc_bid = mo_bid = bid = 70
         target_rank = 1
     else:
         base_cpc    = FALLBACK_CPC_BY_COMPETITION.get(competition, 350)
         base_cpc   *= float(cat_cfg.get("cpc_factor", 1.0))
+        base_bid    = int(round(base_cpc / 10) * 10)
         target_rank = int(cat_cfg.get("target_rank", 5))
-        bid         = int(round(base_cpc / 10) * 10)
 
-        # plAvgDepth는 공식 문서가 없어 경쟁 강도와의 상관관계가 불명확하므로
-        # Fallback bid는 compIdx 기반 FALLBACK_CPC_BY_COMPETITION만 사용
-        bid = int(round(base_cpc / 10) * 10)
+        # PC 입찰가: median → max(median, exposure_min) → base
+        if median_bid_pc > 0:
+            pc_bid = int(round(median_bid_pc / 10) * 10)
+        else:
+            pc_bid = base_bid
+        if exposure_min_bid_pc > 0:
+            pc_bid = max(pc_bid, exposure_min_bid_pc)
+        pc_bid = max(70, pc_bid)
+
+        # MO 입찰가: median → max(median, exposure_min) → base
+        if median_bid_mo > 0:
+            mo_bid = int(round(median_bid_mo / 10) * 10)
+        else:
+            mo_bid = base_bid
+        if exposure_min_bid_mo > 0:
+            mo_bid = max(mo_bid, exposure_min_bid_mo)
+        mo_bid = max(70, mo_bid)
+
+        bid = max(pc_bid, mo_bid)
 
     options = [{
         "keyword":         keyword,
         "category":        category,
         "keyword_type":    keyword_type,
         "bid":             bid,
+        "pc_bid":          pc_bid,
+        "mo_bid":          mo_bid,
         "rank":            target_rank,
         "rank_pc":         target_rank,
         "rank_mo":         target_rank,
@@ -332,7 +361,9 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None):
     return options
 
 
-def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None):
+def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
+                           median_bid_pc=0, median_bid_mo=0,
+                           exposure_min_bid_pc=0, exposure_min_bid_mo=0):
     if cat_map is None:
         cat_map = _get_cat_map()
     keyword         = keyword_row.get("keyword", "")
@@ -345,9 +376,13 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None):
     estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id)
 
     if not estimate_results:
-        return _build_fallback_options(keyword_row, total_budget, cat_map)
+        return _build_fallback_options(keyword_row, total_budget, cat_map,
+                                       median_bid_pc, median_bid_mo,
+                                       exposure_min_bid_pc, exposure_min_bid_mo)
     if all(est["clicks"] == 0 for est in estimate_results):
-        return _build_fallback_options(keyword_row, total_budget, cat_map)
+        return _build_fallback_options(keyword_row, total_budget, cat_map,
+                                       median_bid_pc, median_bid_mo,
+                                       exposure_min_bid_pc, exposure_min_bid_mo)
 
     rank_map = _estimate_rank_from_estimate_results(estimate_results)
     options  = []
@@ -561,6 +596,24 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
     print(f"  네이버 Estimate API 호출 중... (키워드 {len(keyword_rows)}개)")
 
+    # ── 사전 배치 조회: 중간값 입찰가 + 노출 최소 입찰가 ────────────────────
+    # 검색량 있는 키워드에 한해 배치로 미리 조회 (API 왕복 절감 + Fallback 입찰가 정확도 향상)
+    api_key_pre, secret_pre, customer_id_pre = _get_api_keys()
+    kws_with_vol = [
+        row.get("keyword", "") for row in keyword_rows
+        if _to_float(row.get("pc_impr", 0)) > 0 or _to_float(row.get("mo_impr", 0)) > 0
+    ]
+    if kws_with_vol:
+        print(f"  [사전조회] 중간값·노출최소 입찰가 배치 조회 ({len(kws_with_vol)}개)")
+        _median_pc   = get_median_bid_batch(kws_with_vol, "PC",     api_key_pre, secret_pre, customer_id_pre)
+        _median_mo   = get_median_bid_batch(kws_with_vol, "MOBILE", api_key_pre, secret_pre, customer_id_pre)
+        _expmin_pc   = get_exposure_min_bid_batch(kws_with_vol, "PC",     api_key_pre, secret_pre, customer_id_pre)
+        _expmin_mo   = get_exposure_min_bid_batch(kws_with_vol, "MOBILE", api_key_pre, secret_pre, customer_id_pre)
+        print(f"  [사전조회] 중간값 PC:{len(_median_pc)}개 / MO:{len(_median_mo)}개 | "
+              f"노출최소 PC:{len(_expmin_pc)}개 / MO:{len(_expmin_mo)}개")
+    else:
+        _median_pc = _median_mo = _expmin_pc = _expmin_mo = {}
+
     standby_rows = []  # 검색량 0 → 등록 대기 키워드
 
     for row in keyword_rows:
@@ -610,7 +663,14 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                 })
             continue
 
-        options = build_keyword_options(row, total_budget, cat_map)
+        kw = row.get("keyword", "")
+        options = build_keyword_options(
+            row, total_budget, cat_map,
+            median_bid_pc=_median_pc.get(kw, 0),
+            median_bid_mo=_median_mo.get(kw, 0),
+            exposure_min_bid_pc=_expmin_pc.get(kw, 0),
+            exposure_min_bid_mo=_expmin_mo.get(kw, 0),
+        )
         if not options:
             skip_count += 1
             continue
@@ -892,8 +952,9 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         pc_best  = _find_best_bid_for_device(all_opts, target_rank, "pc")
         mo_best  = _find_best_bid_for_device(all_opts, target_rank, "mo")
 
-        pc_bid = pc_best["bid"] if pc_best else row["bid"]
-        mo_bid = mo_best["bid"] if mo_best else row["bid"]
+        # Fallback 키워드는 pc_best/mo_best가 None → 옵션에 저장된 pc_bid/mo_bid 사용
+        pc_bid = pc_best["bid"] if pc_best else row.get("pc_bid", row["bid"])
+        mo_bid = mo_best["bid"] if mo_best else row.get("mo_bid", row["bid"])
 
         # 성과 데이터: selected_map에서 선택된 row 기준 (비용 일관성)
         # pc_cost/mo_cost는 row에서 가져와야 SOFT_CAP 추적값과 일치

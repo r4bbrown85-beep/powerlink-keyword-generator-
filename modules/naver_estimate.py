@@ -93,20 +93,28 @@ def _post(uri: str, payload: dict, api_key: str, secret: str, customer_id: str):
 # ── API 1: performance/keyword 커브 ───────────────────────────────────────────
 
 def _get_curve(keyword: str, device: str,
-               api_key: str, secret: str, customer_id: str) -> list:
+               api_key: str, secret: str, customer_id: str,
+               keywordplus: bool = True) -> list:
     """
     커브 반환 [{bid, impressions, clicks, cost}, ...] (캐시 포함)
     device: "PC" or "MOBILE"
+    keywordplus=True: 확장검색(ADVoost 서치) 포함 성과 추정 (기본값)
     """
     api_kw = _normalize(keyword)
-    path = _cache_path(api_kw, f"{device}_curve")
+    # keywordplus 여부를 캐시 키에 포함 (True/False별 다른 데이터)
+    suffix = f"{device}_curve" + ("_kp" if keywordplus else "")
+    path = _cache_path(api_kw, suffix)
     cached = _load_cache(path)
     if cached is not None:
         return cached
 
+    payload = {"device": device, "key": api_kw, "bids": SCAN_BIDS}
+    if keywordplus:
+        payload["keywordplus"] = True
+
     result = _post(
         "/estimate/performance/keyword",
-        {"device": device, "key": api_kw, "bids": SCAN_BIDS},
+        payload,
         api_key, secret, customer_id
     )
     if not result:
@@ -273,11 +281,12 @@ def get_rank_based_estimates_cached(keyword: str, api_key: str, secret: str, cus
 
 
 def get_estimate_performance(keyword: str, bids: list,
-                              api_key: str, secret: str, customer_id: str) -> list:
+                              api_key: str, secret: str, customer_id: str,
+                              keywordplus: bool = True) -> list:
     """기존 호환용: bid별 PC+MO 통합 성과 반환."""
     api_kw = _normalize(keyword)
-    pc = {e["bid"]: e for e in _get_curve(api_kw, "PC",     api_key, secret, customer_id)}
-    mo = {e["bid"]: e for e in _get_curve(api_kw, "MOBILE", api_key, secret, customer_id)}
+    pc = {e["bid"]: e for e in _get_curve(api_kw, "PC",     api_key, secret, customer_id, keywordplus)}
+    mo = {e["bid"]: e for e in _get_curve(api_kw, "MOBILE", api_key, secret, customer_id, keywordplus)}
     results = []
     for bid in sorted(set(bids)):
         p = pc.get(bid, {"impressions":0,"clicks":0,"cost":0})
@@ -291,3 +300,76 @@ def get_estimate_performance(keyword: str, bids: list,
             "cost":        p["cost"]+m["cost"],
         })
     return results
+
+
+# ── 배치 조회: 중간값 입찰가 / 노출 최소 입찰가 ─────────────────────────────
+
+def _batch_estimate_query(uri: str, keywords: list, device: str,
+                           cache_suffix: str,
+                           api_key: str, secret: str, customer_id: str,
+                           chunk_size: int = 100) -> dict:
+    """
+    중간값/노출최소 입찰가 공통 배치 조회 헬퍼.
+    반환: {keyword: bid}
+    """
+    result   = {}
+    uncached = []
+    for kw in keywords:
+        path   = _cache_path(_normalize(kw), f"{device}_{cache_suffix}")
+        cached = _load_cache(path)
+        if cached is not None:
+            result[kw] = cached
+        else:
+            uncached.append(kw)
+
+    for i in range(0, len(uncached), chunk_size):
+        batch     = uncached[i : i + chunk_size]
+        norm_map  = {_normalize(kw): kw for kw in batch}   # 정규화키 → 원본
+        resp = _post(
+            uri,
+            {"device": device, "period": "MONTH",
+             "items": list(norm_map.keys())},
+            api_key, secret, customer_id
+        )
+        if not resp:
+            continue
+        for e in resp.get("estimate", []):
+            kw_norm = str(e.get("keyword", ""))
+            bid     = int(e.get("bid", 0))
+            if bid <= 0:
+                continue
+            orig = norm_map.get(kw_norm, kw_norm)
+            result[orig] = bid
+            _save_cache(_cache_path(kw_norm, f"{device}_{cache_suffix}"), bid)
+
+    return result
+
+
+def get_median_bid_batch(keywords: list, device: str,
+                          api_key: str, secret: str, customer_id: str) -> dict:
+    """
+    키워드 리스트의 중간값 입찰가 배치 조회.
+    device: "PC" or "MOBILE"
+    반환: {keyword: median_bid}
+    """
+    if not keywords:
+        return {}
+    return _batch_estimate_query(
+        "/estimate/median-bid/keyword", keywords, device,
+        "medianbid", api_key, secret, customer_id
+    )
+
+
+def get_exposure_min_bid_batch(keywords: list, device: str,
+                                api_key: str, secret: str, customer_id: str) -> dict:
+    """
+    키워드 리스트의 노출 최소 입찰가 배치 조회.
+    device: "PC" or "MOBILE"
+    반환: {keyword: exposure_min_bid}
+    """
+    if not keywords:
+        return {}
+    return _batch_estimate_query(
+        "/estimate/exposure-minimum-bid/keyword", keywords, device,
+        "expminbid", api_key, secret, customer_id
+    )
