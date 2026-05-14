@@ -755,6 +755,15 @@ def run_single_brand(brand_profile, brand_name):
     rows              = [row for row in rows
                          if normalize_keyword_for_ad(row["keyword"]) in filtered_set]
 
+    # 4-1. 명시적 제외 키워드 최종 필터
+    # AI 캐시·자동완성 재생성으로 제외 키워드가 돌아오는 경우를 차단
+    _exc_set = {e.lower().replace(" ", "") for e in brand_profile.get("exclude_keywords", []) if e}
+    if _exc_set:
+        before = len(rows)
+        rows = [r for r in rows if r.get("keyword", "").lower().replace(" ", "") not in _exc_set]
+        if before - len(rows):
+            print(f"  제외 키워드 최종 필터: {before}개 → {len(rows)}개 ({before - len(rows)}개 제거)")
+
     # 점수 부여
     keywords  = [row["keyword"] for row in rows]
     scored    = score_keywords(keywords)

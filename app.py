@@ -798,6 +798,8 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
     )
     add_kws = [k.strip() for k in add_input.replace(",", "\n").splitlines() if k.strip()]
     if st.button(f"⚡  {bname} — 커스텀 적용 후 재생성", key=f"regen_{bname}", type="primary", use_container_width=True):
+        # 버튼 클릭 시점에 제외 키워드를 명시적으로 다시 저장 (타이밍 이슈 방지)
+        st.session_state.custom_exc_kws[bname] = edited[edited["포함"] == False]["키워드"].tolist()
         st.session_state.custom_add_kws[bname] = add_kws
         st.session_state._gen_pending = True
         st.rerun(scope="app")
