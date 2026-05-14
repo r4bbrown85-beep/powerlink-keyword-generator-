@@ -60,6 +60,56 @@ def _is_buying_business(profile: dict) -> bool:
     return any(kw in texts for kw in _BUYING_KEYWORDS)
 
 
+# ── 캠페인 목표별 키워드 생성 가이드라인 ─────────────────────────────────────
+
+_GOAL_GUIDES = {
+    "사전예약/사전등록": (
+        "● 이 캠페인은 출시 전 사전예약·사전등록 유도가 핵심이다\n"
+        "● 브랜드/상품 키워드에 '사전예약, 사전등록, 얼리버드, 출시일, 베타신청, 사전체험, 출시예정' 등을 적극 결합\n"
+        "● 일반 키워드는 출시 전 기대감을 가진 잠재 이용자가 검색할 키워드 위주로 구성"
+    ),
+    "런칭/서비스 오픈": (
+        "● 이 캠페인은 서비스·게임·브랜드의 신규 론칭을 알리는 것이 핵심이다\n"
+        "● '출시, 오픈, 런칭, 정식서비스, 신규오픈, 시작하기, 첫달무료' 등 개시 관련 키워드 강조\n"
+        "● 기존 유사 서비스 이용자가 갈아타도록 유도하는 비교·전환 키워드도 포함"
+    ),
+    "신작/개봉 홍보": (
+        "● 이 캠페인은 신작 콘텐츠(영화·OTT·웹툰·공연)의 관심 유도 및 관람/시청 전환이 핵심이다\n"
+        "● '개봉, 신작, 상영, 스트리밍, 첫방영, 예매, 줄거리, 출연진, 감독, 리뷰, 후기' 계열 키워드 적극 포함\n"
+        "● 브랜드 키워드는 작품명·시리즈명 중심, 상품 키워드는 등장인물·OST·에피소드 등 콘텐츠 요소 포함\n"
+        "● 경쟁사는 같은 장르 경쟁 콘텐츠/플랫폼으로 구성"
+    ),
+    "문의/상담 유도": (
+        "● 이 캠페인은 직접 구매보다 문의·상담·견적 요청을 통한 리드 전환이 핵심이다\n"
+        "● '무료상담, 상담신청, 전문가상담, 견적문의, 전화상담, 온라인상담, 무료견적, 상담예약' 계열 키워드 적극 결합\n"
+        "● 일반 키워드는 구매 고려 단계(비교·추천·선택방법)에 있는 잠재고객 위주로 구성"
+    ),
+    "가입자수 확대": (
+        "● 이 캠페인은 신규 회원 가입·구독·등록 유도가 핵심이다\n"
+        "● '회원가입, 무료가입, 구독신청, 무료등록, 계정만들기, 서비스가입, 무료회원' 계열 키워드 강조\n"
+        "● 일반 키워드는 서비스를 처음 알게 된 신규 이용자가 검색할 키워드 위주로 구성"
+    ),
+    "무료체험 신청": (
+        "● 이 캠페인은 제품·서비스의 무료 체험 신청 유도가 핵심이다\n"
+        "● '무료체험, 체험판, 무료이용, 30일무료, 트라이얼, 무료신청, 체험신청, 데모신청' 계열 키워드 강조\n"
+        "● 진입 장벽을 낮추는 키워드(무료·체험·부담없이) 우선 구성"
+    ),
+    "방문/예약 유도": (
+        "● 이 캠페인은 오프라인 매장 방문 또는 온라인 예약 전환이 핵심이다\n"
+        "● '방문예약, 온라인예약, 예약신청, 매장위치, 예약가능, 당일예약, 사전예약' 계열 키워드 강조\n"
+        "● 지역명 + 브랜드/서비스 조합 키워드 적극 포함 (매장 방문 의도 캡처)"
+    ),
+}
+
+
+def _build_goal_guidance(campaign_goal: str) -> str:
+    """선택된 캠페인 목표에 해당하는 프롬프트 가이드라인 반환."""
+    lines = [guide for key, guide in _GOAL_GUIDES.items() if key in campaign_goal]
+    if not lines:
+        return ""
+    return "\n━━━ 캠페인 목표별 키워드 가이드라인 ━━━\n" + "\n".join(lines)
+
+
 def _build_buying_business_prompt(brand, category, products, competitors,
                                    korean_str, must_str, campaign_goal,
                                    identity_stmt, not_this_brand,
@@ -69,10 +119,11 @@ def _build_buying_business_prompt(brand, category, products, competitors,
     매입/구매 비즈니스 전용 키워드 생성 프롬프트.
     판매자(물건을 팔고 싶은 사람)가 검색할 키워드를 생성한다.
     """
-    products_str = ", ".join(products) if products else f"{category} 관련 품목"
+    products_str    = ", ".join(products) if products else f"{category} 관련 품목"
     competitors_str = ", ".join(competitors) if competitors else "동종 매입업체"
-    doc_section = f"\n━━━ 참고 문서 내용 ━━━\n{doc_context[:1500]}\n" if doc_context else ""
-    notes_section = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+    doc_section     = f"\n━━━ 참고 문서 내용 ━━━\n{doc_context[:1500]}\n" if doc_context else ""
+    notes_section   = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+    goal_section    = _build_goal_guidance(campaign_goal)
 
     return f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
 이 광고주는 제품을 "판매"하는 게 아니라 특정 품목을 "매입(구매)"하는 업체다.
@@ -87,7 +138,7 @@ def _build_buying_business_prompt(brand, category, products, competitors,
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것: {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
-{notes_section}{doc_section}
+{notes_section}{goal_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
 ● 타깃: "{products_str}을 처분/판매하려는 한국 사람이 네이버에서 검색할 키워드"
@@ -377,10 +428,9 @@ def generate_ai_keyword_plan(profile):
         return result
 
     # ── 일반 판매 비즈니스 프롬프트 ─────────────────────────────────────────
-    doc_section = ""
-    if doc_context:
-        doc_section = f"\n━━━ 참고 문서 내용 (제품 카탈로그 / 마케팅 문서) ━━━\n{doc_context[:1500]}\n"
+    doc_section   = f"\n━━━ 참고 문서 내용 (제품 카탈로그 / 마케팅 문서) ━━━\n{doc_context[:1500]}\n" if doc_context else ""
     notes_section = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+    goal_section  = _build_goal_guidance(campaign_goal)
 
     # 광고주 브리핑 → 소비자 구매 검색 시뮬레이션 방식
     user_msg = f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
@@ -395,7 +445,7 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것 (제외 대상): {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
-{notes_section}{doc_section}
+{notes_section}{goal_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
 ● "{products_str}을 구매하려는 한국 소비자가 네이버에서 실제로 검색할 검색어"만 생성한다
