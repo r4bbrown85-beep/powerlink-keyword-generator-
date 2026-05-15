@@ -46,10 +46,81 @@ AMBIGUOUS_BLACKLIST = [
     "넷플릭스", "왓챠", "티빙", "웨이브",
 ]
 
+# 업종 불일치 도메인 필터
+# 형식: (키워드에_포함된_패턴, [광고주_도메인에_이_단어_중_하나가_있으면_허용])
+# 광고주의 category + products + campaign_goal 에서 허용 단어를 확인함
+_DOMAIN_MISMATCH_RULES = [
+    # ─ 금융·신용 조회 서비스 ─
+    ("신용평가",    ["신용", "금융", "신용조회", "평가원", "크레딧"]),
+    ("신용등급",    ["신용", "금융", "신용조회", "크레딧"]),
+    ("등급확인서",  ["신용", "금융", "자격", "등급"]),
+    ("기업신용",    ["신용", "금융", "크레딧"]),
+    # ─ ISP·인터넷 회선 서비스 ─
+    ("기업인터넷",  ["인터넷", "통신", "isp", "internet", "네트워크"]),
+    ("인터넷회선",  ["인터넷", "통신", "isp", "internet"]),
+    ("광랜",        ["인터넷", "통신", "광랜", "broadband"]),
+    ("인터넷설치",  ["인터넷", "통신", "설치"]),
+    # ─ 부동산 ─
+    ("부동산",      ["부동산", "임대", "분양", "공인중개", "주택"]),
+    ("아파트분양",  ["부동산", "분양", "주택"]),
+    # ─ 채용·구직 (HR·인재관리 솔루션 제외) ─
+    ("채용공고",    ["채용", "구인", "hr", "인재", "헤드헌팅", "ats"]),
+    ("구인구직",    ["채용", "구인", "hr", "인재"]),
+    # ─ 여행·관광 ─
+    ("호텔예약",    ["호텔", "숙박", "여행", "관광", "예약플랫폼"]),
+    ("항공권",      ["항공", "여행", "관광"]),
+    # ─ 주식·투자 ─
+    ("주식투자",    ["주식", "증권", "투자", "펀드"]),
+    ("코인투자",    ["코인", "가상화폐", "블록체인", "투자"]),
+]
+
 
 def _is_ambiguous_keyword(keyword):
     kw = str(keyword).lower()
     return any(term in kw for term in AMBIGUOUS_BLACKLIST)
+
+
+def _build_advertiser_domain_text(profile):
+    """광고주의 업종 컨텍스트 텍스트 — 도메인 불일치 판단용."""
+    parts = [
+        profile.get("category", ""),
+        " ".join(profile.get("products", [])),
+        profile.get("campaign_goal", ""),
+        " ".join(profile.get("general_keyword_themes", [])),
+    ]
+    return " ".join(parts).lower().replace(" ", "")
+
+
+def _is_domain_mismatch(keyword, advertiser_domain_text):
+    """
+    광고주 업종과 다른 도메인의 키워드인지 확인.
+    키워드에 특정 도메인 패턴이 포함되어 있고, 광고주 업종이 해당 도메인과
+    무관한 경우 True 반환 → 제거 대상.
+    """
+    kw = keyword.lower().replace(" ", "")
+    for pattern, allowing_domains in _DOMAIN_MISMATCH_RULES:
+        if pattern in kw:
+            if not any(d in advertiser_domain_text for d in allowing_domains):
+                return True
+    return False
+
+
+def _is_too_generic(keyword, all_brand_norms):
+    """
+    2글자 이하 순수 한글 키워드는 검색 의도가 불명확하여 제외.
+    브랜드명 포함 시 예외 (예: 'KT' 등 짧은 브랜드).
+    """
+    kw_no_space = keyword.replace(" ", "")
+    if len(kw_no_space) > 2:
+        return False
+    # 순수 한글 2글자 여부 확인
+    if not all('가' <= c <= '힣' for c in kw_no_space):
+        return False
+    # 브랜드명 포함 시 허용
+    kw_norm = normalize_keyword_for_ad(keyword)
+    if any(b and b in kw_norm for b in all_brand_norms):
+        return False
+    return True
 
 
 def load_multi_profile(path="data/client_profile.json"):
@@ -440,24 +511,42 @@ def filter_unrelated_keywords(rows, profile):
             comp_cat_name = cat.get("name", "경쟁사 키워드")
             break
 
-    # 제외 키워드는 client_profile의 exclude_keywords에서만 관리
-    # 코드에 하드코딩하지 않음 → 보편적 로직 유지, 광고주별 profile에서 설정
+    advertiser_domain_text = _build_advertiser_domain_text(profile)
 
     filtered, removed = [], 0
+    removed_reasons: dict[str, int] = {}
+
+    def _drop(reason):
+        nonlocal removed
+        removed += 1
+        removed_reasons[reason] = removed_reasons.get(reason, 0) + 1
+
     for row in rows:
         source  = row.get("source", "")
         kw      = row.get("keyword", "")
         kw_norm = normalize_keyword_for_ad(kw)
 
         if kw_norm in exclude_kws:
-            removed += 1
+            _drop("exclude_kws")
             continue
+
+        # ── 전체 키워드 공통 필터 (ai_seed 포함) ─────────────────────────
+        # 1. 업종 불일치 도메인 패턴 (신용평가, 기업인터넷 등)
+        if _is_domain_mismatch(kw, advertiser_domain_text):
+            _drop("domain_mismatch")
+            continue
+
+        # 2. 2글자 이하 초광범위 한글 키워드 (기업, 업무 등 단독)
+        if _is_too_generic(kw, all_brand_norms):
+            _drop("too_generic")
+            continue
+        # ─────────────────────────────────────────────────────────────────
 
         # 지역명 + 카테고리 + 수리 패턴 (제주시컴퓨터수리 등) — 확장 키워드만 적용
         if source != "ai_seed" and "수리" in kw.lower():
             has_brand_in_kw = any(b and b in kw_norm for b in all_brand_norms)
             if not has_brand_in_kw:
-                removed += 1
+                _drop("repair_pattern")
                 continue
 
         # profile의 exclude_keywords로 제외 (광고주별 설정)
@@ -465,7 +554,7 @@ def filter_unrelated_keywords(rows, profile):
         if exclude_kw_list:
             kw_lower = kw.lower().replace(" ","")
             if any(excl.lower().replace(" ","") in kw_lower for excl in exclude_kw_list):
-                removed += 1
+                _drop("exclude_kw_list")
                 continue
 
         # 경쟁사 키워드 자동 재분류:
@@ -480,7 +569,7 @@ def filter_unrelated_keywords(rows, profile):
                 # 경쟁사 브랜드명이 포함되어도 카테고리와 무관하면 제거
                 # (삼성에어컨, 삼성냉장고 등 타 제품군 유입 방지)
                 if not _is_category_relevant(kw, profile):
-                    removed += 1
+                    _drop("competitor_irrelevant")
                     continue
                 row = dict(row)
                 row["category"] = comp_cat_name
@@ -501,14 +590,15 @@ def filter_unrelated_keywords(rows, profile):
         if _is_ambiguous_keyword(kw):
             has_brand = any(b in kw_norm for b in all_brand_norms)
             if not has_brand:
-                removed += 1
+                _drop("ambiguous")
                 continue
         if is_relevant_keyword(kw, relevance_tokens, profile):
             filtered.append(row)
         else:
-            removed += 1
+            _drop("not_relevant")
 
-    print(f"  무관련 키워드 제거: {removed}개 / 남은 키워드: {len(filtered)}개")
+    reason_summary = ", ".join(f"{r}:{n}" for r, n in sorted(removed_reasons.items()))
+    print(f"  무관련 키워드 제거: {removed}개 [{reason_summary}] / 남은 키워드: {len(filtered)}개")
     return filtered
 
 
