@@ -12,6 +12,7 @@ import json
 import os
 from modules.naver_estimate import (
     get_estimate_performance, get_rank_based_estimates,
+    get_rank_based_estimates_cached,
     get_median_bid_batch, get_exposure_min_bid_batch,
 )
 
@@ -372,14 +373,81 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
     priority_weight = get_priority_weight(keyword_row, cat_map)
 
     api_key, secret, customer_id = _get_api_keys()
+
+    # ── API 2: 순위별 정확한 입찰가 데이터 (PC/MO 독립 최적화) ──────────────
+    rank_data = get_rank_based_estimates_cached(keyword, api_key, secret, customer_id,
+                                                 target_ranks=[1, 2, 3, 4, 5])
+    if rank_data:
+        # JSON 캐시: int 키가 string으로 직렬화되므로 복원
+        pc_ranks = {int(k): v for k, v in rank_data.get("PC", {}).items()}
+        mo_ranks = {int(k): v for k, v in rank_data.get("MO", {}).items()}
+
+        options = []
+        for rank in [1, 2, 3, 4, 5]:
+            pc_data = pc_ranks.get(rank, {})
+            mo_data = mo_ranks.get(rank, {})
+
+            pc_bid    = int(pc_data.get("bid", 0) or 0)
+            mo_bid    = int(mo_data.get("bid", 0) or 0)
+            pc_impr   = int(pc_data.get("impressions", 0) or 0)
+            pc_clicks = int(pc_data.get("clicks", 0) or 0)
+            pc_cost   = int(pc_data.get("cost", 0) or 0)
+            mo_impr   = int(mo_data.get("impressions", 0) or 0)
+            mo_clicks = int(mo_data.get("clicks", 0) or 0)
+            mo_cost   = int(mo_data.get("cost", 0) or 0)
+
+            total_impr   = pc_impr + mo_impr
+            total_clicks = pc_clicks + mo_clicks
+            total_cost   = pc_cost + mo_cost
+
+            if total_clicks == 0:
+                continue
+
+            efficiency     = _safe_ratio(total_clicks, total_cost, 0.0)
+            traffic_bonus  = _safe_ratio(total_clicks, max(total_impr, 1), 0.0)
+            weighted_score = (efficiency * 0.82 + traffic_bonus * 0.18) * priority_weight
+
+            options.append({
+                "keyword":         keyword,
+                "category":        category,
+                "keyword_type":    keyword_type,
+                "bid":             pc_bid or mo_bid,
+                "pc_bid":          pc_bid,
+                "mo_bid":          mo_bid,
+                "rank":            rank,
+                "rank_pc":         rank if pc_bid > 0 else 0,
+                "rank_mo":         rank if mo_bid > 0 else 0,
+                "impressions":     total_impr,
+                "clicks":          total_clicks,
+                "ctr":             round(_safe_ratio(total_clicks, total_impr), 4),
+                "cpc":             int(round(_safe_ratio(total_cost, total_clicks))),
+                "cost":            total_cost,
+                "pc_impressions":  pc_impr,
+                "pc_clicks":       pc_clicks,
+                "pc_ctr":          round(_safe_ratio(pc_clicks, pc_impr), 4),
+                "pc_cpc":          int(round(_safe_ratio(pc_cost, pc_clicks))),
+                "pc_cost":         pc_cost,
+                "mo_impressions":  mo_impr,
+                "mo_clicks":       mo_clicks,
+                "mo_ctr":          round(_safe_ratio(mo_clicks, mo_impr), 4),
+                "mo_cpc":          int(round(_safe_ratio(mo_cost, mo_clicks))),
+                "mo_cost":         mo_cost,
+                "anchor_bid":      0,
+                "priority_weight": round(priority_weight, 4),
+                "efficiency":      efficiency,
+                "weighted_score":  weighted_score,
+                "is_fallback":     False,
+            })
+
+        if options:
+            options.sort(key=lambda x: (-x["weighted_score"], x["rank"], x["cost"]))
+            return _cap_options_by_budget(options, category, total_budget, cat_map)
+
+    # ── Fallback: API 1 커브 기반 추정 ───────────────────────────────────────
     bid_candidates   = _build_bid_candidates(keyword_row, cat_map)
     estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id)
 
-    if not estimate_results:
-        return _build_fallback_options(keyword_row, total_budget, cat_map,
-                                       median_bid_pc, median_bid_mo,
-                                       exposure_min_bid_pc, exposure_min_bid_mo)
-    if all(est["clicks"] == 0 for est in estimate_results):
+    if not estimate_results or all(est["clicks"] == 0 for est in estimate_results):
         return _build_fallback_options(keyword_row, total_budget, cat_map,
                                        median_bid_pc, median_bid_mo,
                                        exposure_min_bid_pc, exposure_min_bid_mo)
@@ -411,6 +479,8 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
             "category":        category,
             "keyword_type":    keyword_type,
             "bid":             bid,
+            "pc_bid":          bid,
+            "mo_bid":          bid,
             "rank":            rank_info[0],
             "rank_pc":         rank_info[1],
             "rank_mo":         rank_info[2],
@@ -486,11 +556,12 @@ def _upgrade_selected_with_budget(records, budget_left, selected_map):
             current = selected_map.get(item["keyword"])
             if not current:
                 continue
+            cur_cost = _real_cost(current)
             for better in sorted(
-                [o for o in item["options"] if o["bid"] > current["bid"]],
-                key=lambda x: x["bid"]
+                [o for o in item["options"] if _real_cost(o) > cur_cost],
+                key=lambda x: _real_cost(x)
             ):
-                diff_cost  = better["cost"] - current["cost"]
+                diff_cost  = _real_cost(better) - cur_cost
                 diff_score = better["weighted_score"] - current["weighted_score"]
                 # diff_cost만 양수면 업그레이드 허용 (클릭 늘리기 위해 비용 증가 감수)
                 if diff_cost <= 0:
@@ -554,11 +625,12 @@ def _apply_budget_cap(selected_map, all_records, total_budget):
             item = record_map.get(keyword)
             if not item:
                 continue
+            cur_cost = _real_cost(current)
             for lower in sorted(
-                [o for o in item["options"] if o["bid"] < current["bid"]],
-                key=lambda x: x["bid"], reverse=True
+                [o for o in item["options"] if _real_cost(o) < cur_cost],
+                key=lambda x: _real_cost(x), reverse=True
             ):
-                save_cost = current["cost"] - lower["cost"]
+                save_cost = cur_cost - _real_cost(lower)
                 if save_cost <= 0:
                     continue
                 lose_score = current["weighted_score"] - lower["weighted_score"]

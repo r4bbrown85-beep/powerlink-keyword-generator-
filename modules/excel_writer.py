@@ -111,16 +111,22 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
 
 
 # ── 제안서 시트 ───────────────────────────────────────────────
+# 컬럼 레이아웃 (A=여백, B~J=데이터):
+#  B:키워드  C:구분  D:매체  E:입찰가  F:노출  G:클릭  H:비용  I:순위  J:비고
+_PROP_LAST_COL = 10  # J
+
 def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
-    widths = {1:3, 2:28, 3:12, 4:11, 5:10, 6:8,
-              7:12, 8:6, 9:11, 10:10, 11:8, 12:12, 13:6, 14:6}
+    widths = {1:3, 2:26, 3:12, 4:5, 5:11, 6:10, 7:8, 8:12, 9:6, 10:8}
     for c, w in widths.items():
         ws.column_dimensions[get_column_letter(c)].width = w
+
+    LAST = _PROP_LAST_COL
+    LAST_L = get_column_letter(LAST)
 
     row = 1
 
     # 타이틀
-    ws.merge_cells(f"B{row}:N{row}")
+    ws.merge_cells(f"B{row}:{LAST_L}{row}")
     _write_cell(ws, row, 2,
                 f"■ {advertiser} 검색광고 캠페인 운영 제안",
                 bold=True, bg=COLOR_TITLE_BG,
@@ -131,20 +137,20 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
     # 카테고리 전략 설명
     if isinstance(category_desc, dict):
         for i, (cat, desc) in enumerate(category_desc.items(), 1):
-            ws.merge_cells(f"B{row}:N{row}")
+            ws.merge_cells(f"B{row}:{LAST_L}{row}")
             _write_cell(ws, row, 2, f"{i}. {cat}", bold=True, align_h="left")
             row += 1
-            ws.merge_cells(f"B{row}:N{row}")
+            ws.merge_cells(f"B{row}:{LAST_L}{row}")
             _write_cell(ws, row, 2, f"   - {desc}",
                         font_size=9, font_color="595959", align_h="left")
             row += 1
         row += 1
 
-    # 전체 요약 표
-    ws.merge_cells(f"B{row}:C{row}")
+    # 전체 요약 표 (TOTAL / PC / MO)
+    ws.merge_cells(f"B{row}:D{row}")
     _write_cell(ws, row, 2, "* 예상 성과", bold=True, align_h="left")
-    ws.merge_cells(f"J{row}:N{row}")
-    _write_cell(ws, row, 10, "(VAT 포함가)", align_h="right")
+    ws.merge_cells(f"H{row}:{LAST_L}{row}")
+    _write_cell(ws, row, 8, "(VAT 포함가)", align_h="right")
     row += 1
 
     for i, h in enumerate(["구분","평균 입찰가","노출","클릭","CTR","비용","평균 순위"]):
@@ -152,20 +158,21 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
     row += 1
 
     def agg(lst): return int(sum(lst)/len(lst)) if lst else 0
-    def ctr(c, i): return round(c/i, 4) if i > 0 else 0.0
+    def ctr_val(c, i): return round(c/i, 4) if i > 0 else 0.0
 
     pc_bids, pc_imp, pc_clk, pc_cost, pc_rnk = [], [], [], [], []
     mo_bids, mo_imp, mo_clk, mo_cost, mo_rnk = [], [], [], [], []
     for r in rec_sorted:
-        bid = _safe_int(r.get("proposed_bid", 0))
+        pc_bid_r = _safe_int(r.get("proposed_bid_pc", 0) or r.get("proposed_bid", 0))
+        mo_bid_r = _safe_int(r.get("proposed_bid_mo", 0) or r.get("proposed_bid", 0))
         if _safe_int(r.get("pc_sim_impressions", 0)) > 0:
-            pc_bids.append(bid)
+            pc_bids.append(pc_bid_r)
             pc_imp.append( _safe_int(r.get("pc_sim_impressions", 0)))
             pc_clk.append( _safe_int(r.get("pc_sim_clicks", 0)))
             pc_cost.append(_safe_int(r.get("pc_sim_cost", 0)))
             pc_rnk.append( _safe_int(r.get("proposed_rank_pc", 0)))
         if _safe_int(r.get("mo_sim_impressions", 0)) > 0:
-            mo_bids.append(bid)
+            mo_bids.append(mo_bid_r)
             mo_imp.append( _safe_int(r.get("mo_sim_impressions", 0)))
             mo_clk.append( _safe_int(r.get("mo_sim_clicks", 0)))
             mo_cost.append(_safe_int(r.get("mo_sim_cost", 0)))
@@ -177,54 +184,20 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         ("MO",    mo_bids, mo_imp, mo_clk, mo_cost, mo_rnk),
     ]:
         _write_cell(ws, row, 2, label, bold=(label=="TOTAL"), bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 3, agg(bids),          bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 4, sum(imp),            bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 5, sum(clk),            bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 6, ctr(sum(clk),sum(imp)), bg=COLOR_SUBTOTAL_BG, num_fmt="0.00%")
-        _write_cell(ws, row, 7, sum(cost),           bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 8, agg(rnk),            bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0.0")
+        _write_cell(ws, row, 3, agg(bids),                    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 4, sum(imp),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 5, sum(clk),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 6, ctr_val(sum(clk), sum(imp)),  bg=COLOR_SUBTOTAL_BG, num_fmt="0.00%")
+        _write_cell(ws, row, 7, sum(cost),                    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 8, agg(rnk),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0.0")
         row += 1
     row += 1
 
     # 키워드별 상세 타이틀
-    ws.merge_cells(f"B{row}:C{row}")
+    ws.merge_cells(f"B{row}:D{row}")
     _write_cell(ws, row, 2, "* 키워드별 상세 예상 성과", bold=True, align_h="left")
-    ws.merge_cells(f"J{row}:N{row}")
-    _write_cell(ws, row, 10, "(VAT 포함가)", align_h="right")
-    row += 1
-
-    # ── 헤더 1행 ──────────────────────────────────────────
-    # B: 키워드 (아래 행과 세로 병합)
-    ws.merge_cells(f"B{row}:B{row+1}")
-    _write_cell(ws, row, 2, "키워드", bold=True, bg=COLOR_HEADER_BG)
-
-    # C: 구분 (아래 행과 세로 병합)
-    ws.merge_cells(f"C{row}:C{row+1}")
-    _write_cell(ws, row, 3, "구분", bold=True, bg=COLOR_HEADER_BG)
-
-    # D~H: PC 예상 운영 성과
-    ws.merge_cells(f"D{row}:H{row}")
-    _write_cell(ws, row, 4, "PC 예상 운영 성과", bold=True, bg=COLOR_HEADER_BG)
-
-    # I~M: MO 예상 운영 성과
-    ws.merge_cells(f"I{row}:M{row}")
-    _write_cell(ws, row, 9, "MO 예상 운영 성과", bold=True, bg=COLOR_HEADER_BG)
-
-    # N: 비고 (아래 행과 세로 병합)
-    ws.merge_cells(f"N{row}:N{row+1}")
-    _write_cell(ws, row, 14, "비고", bold=True, bg=COLOR_HEADER_BG)
-
-    row += 1
-
-    # ── 헤더 2행 ──────────────────────────────────────────
-    # B, C, N은 위에서 세로 병합됨 → 건드리지 않음
-    # D~M만 작성
-    for col, label in zip(
-        [4,      5,   6,   7,   8,    9,      10,  11,  12,  13],
-        ["입찰가","노출","클릭","비용","순위",
-         "입찰가","노출","클릭","비용","순위"]
-    ):
-        _write_cell(ws, row, col, label, bold=True, bg=COLOR_HEADER_BG)
+    ws.merge_cells(f"H{row}:{LAST_L}{row}")
+    _write_cell(ws, row, 8, "(VAT 포함가)", align_h="right")
     row += 1
 
     # ── 카테고리별 키워드 출력 ─────────────────────────────
@@ -240,17 +213,14 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         cc  = _cat_color(cat)
 
         # 카테고리 소제목
-        ws.merge_cells(f"B{row}:N{row}")
+        ws.merge_cells(f"B{row}:{LAST_L}{row}")
         _write_cell(ws, row, 2, f"{cat_num}. {cat}",
                     bold=True, bg=cc, align_h="left")
         ws.row_dimensions[row].height = 16
         row += 1
 
-        # 카테고리별 칼럼 헤더 반복
-        for _ci, _lbl in enumerate([
-            "키워드","구분","입찰가(PC)","노출(PC)","클릭(PC)","비용(PC)","순위(PC)",
-            "입찰가(MO)","노출(MO)","클릭(MO)","비용(MO)","순위(MO)","비고"
-        ]):
+        # 칼럼 헤더
+        for _ci, _lbl in enumerate(["키워드","구분","매체","입찰가","노출","클릭","비용","순위","비고"]):
             _write_cell(ws, row, 2+_ci, _lbl, bold=True, bg=COLOR_HEADER_BG)
         ws.row_dimensions[row].height = 14
         row += 1
@@ -258,7 +228,6 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         for kw_row in kws:
             fb           = kw_row.get("is_fallback", False)
             not_selected = kw_row.get("not_selected", False)
-            # 배경색: Fallback=노란색, 미선택=회색, 정상=없음
             if fb:
                 bg = COLOR_FALLBACK_BG
             elif not_selected:
@@ -266,47 +235,68 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
             else:
                 bg = None
 
-            # PC/MO 각각 최적 입찰가
             pc_bid = _safe_int(kw_row.get("proposed_bid_pc", 0) or kw_row.get("proposed_bid", 0))
             mo_bid = _safe_int(kw_row.get("proposed_bid_mo", 0) or kw_row.get("proposed_bid", 0))
 
-            # 성과값: Fallback=노출/클릭/비용 빈칸이지만 순위는 표시, 미선택=빈칸
-            has_perf      = not fb and not not_selected
-            has_rank_only = fb and not not_selected  # Fallback: 순위만 표시
+            pc_impr   = _safe_int(kw_row.get("pc_sim_impressions", 0))
+            pc_clicks = _safe_int(kw_row.get("pc_sim_clicks", 0))
+            pc_cost   = _safe_int(kw_row.get("pc_sim_cost", 0))
+            pc_rank   = _safe_int(kw_row.get("proposed_rank_pc", 0))
+            mo_impr   = _safe_int(kw_row.get("mo_sim_impressions", 0))
+            mo_clicks = _safe_int(kw_row.get("mo_sim_clicks", 0))
+            mo_cost   = _safe_int(kw_row.get("mo_sim_cost", 0))
+            mo_rank   = _safe_int(kw_row.get("proposed_rank_mo", 0))
 
-            def _perf(key, default=0):
-                v = kw_row.get(key, "")
-                if v == "" or v is None:
-                    return ""
+            show_pc = pc_bid > 0 or pc_impr > 0
+            show_mo = mo_bid > 0 or mo_impr > 0
+            if not show_pc and not show_mo:
+                show_pc = True  # 최소 1행 표시
+
+            has_perf      = not fb and not not_selected
+            has_rank_only = fb and not not_selected
+
+            def _v(val, is_rank=False):
                 if has_perf:
-                    return _safe_int(v)
-                # Fallback이면 순위 관련 키만 표시
-                if has_rank_only and "rank" in key:
-                    val = _safe_int(v)
+                    return val if val else ""
+                if has_rank_only and is_rank:
                     return val if val else ""
                 return ""
 
-            _write_cell(ws, row,  2, kw_row.get("keyword",""),   bg=bg, align_h="left")
-            _write_cell(ws, row,  3, kw_row.get("category",""),  bg=bg)
-            _write_cell(ws, row,  4, pc_bid if pc_bid else "",    bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row,  5, _perf("pc_sim_impressions"), bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row,  6, _perf("pc_sim_clicks"),      bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row,  7, _perf("pc_sim_cost"),        bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row,  8, _perf("proposed_rank_pc"),   bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row,  9, mo_bid if mo_bid else "",    bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row, 10, _perf("mo_sim_impressions"), bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row, 11, _perf("mo_sim_clicks"),      bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row, 12, _perf("mo_sim_cost"),        bg=bg, num_fmt="#,##0")
-            _write_cell(ws, row, 13, _perf("proposed_rank_mo"),   bg=bg, num_fmt="#,##0")
-            # 비고: 추정=입찰가만 제안, 미선택=예산외, 정상=빈칸
-            if fb:
-                note = "입찰가제안"
-            elif not_selected:
-                note = "예산외"
-            else:
-                note = ""
-            _write_cell(ws, row, 14, note, bg=bg)
-            row += 1
+            note = "입찰가제안" if fb else ("예산외" if not_selected else "")
+            keyword_str  = kw_row.get("keyword", "")
+            category_str = kw_row.get("category", "")
+
+            num_rows = (1 if show_pc else 0) + (1 if show_mo else 0)
+            first_data_row = row
+
+            if show_pc:
+                _write_cell(ws, row, 2, keyword_str,               bg=bg, align_h="left")
+                _write_cell(ws, row, 3, category_str,              bg=bg)
+                _write_cell(ws, row, 4, "PC",                      bg=bg, bold=True)
+                _write_cell(ws, row, 5, pc_bid if pc_bid else "",  bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 6, _v(pc_impr),               bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 7, _v(pc_clicks),             bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 8, _v(pc_cost),               bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 9, _v(pc_rank, is_rank=True), bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 10, note if not show_mo else "", bg=bg)
+                row += 1
+
+            if show_mo:
+                _write_cell(ws, row, 2, keyword_str,               bg=bg, align_h="left")
+                _write_cell(ws, row, 3, category_str,              bg=bg)
+                _write_cell(ws, row, 4, "MO",                      bg=bg, bold=True)
+                _write_cell(ws, row, 5, mo_bid if mo_bid else "",  bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 6, _v(mo_impr),               bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 7, _v(mo_clicks),             bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 8, _v(mo_cost),               bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 9, _v(mo_rank, is_rank=True), bg=bg, num_fmt="#,##0")
+                _write_cell(ws, row, 10, note,                     bg=bg)
+                row += 1
+
+            # keyword/category 열을 PC+MO 행에 걸쳐 병합 (둘 다 있을 때)
+            if show_pc and show_mo:
+                ws.merge_cells(f"B{first_data_row}:B{first_data_row+1}")
+                ws.merge_cells(f"C{first_data_row}:C{first_data_row+1}")
 
         # 카테고리 소계
         c_pc_imp  = sum(_safe_int(r.get("pc_sim_impressions",0)) for r in kws)
@@ -315,48 +305,48 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         c_mo_imp  = sum(_safe_int(r.get("mo_sim_impressions",0)) for r in kws)
         c_mo_clk  = sum(_safe_int(r.get("mo_sim_clicks",0))      for r in kws)
         c_mo_cost = sum(_safe_int(r.get("mo_sim_cost",0))        for r in kws)
-        c_bid     = int(sum(_safe_int(r.get("proposed_bid",0)) for r in kws)/len(kws)) if kws else 0
 
-        # 소계 행: 키워드 칼럼은 비워두고 구분 칼럼에 소계 표시 (키워드로 오인 방지)
-        _write_cell(ws, row,  2, "",                bg=COLOR_SUBTOTAL_BG, align_h="left")
-        _write_cell(ws, row,  3, f"◀ {cat} 소계 ({len(kws)}개)", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-        _write_cell(ws, row,  4, c_bid,     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row,  5, c_pc_imp,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row,  6, c_pc_clk,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row,  7, c_pc_cost, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row,  8, "",         bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row,  9, c_bid,     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 10, c_mo_imp,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 11, c_mo_clk,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 12, c_mo_cost, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 13, "",         bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 14, "",         bg=COLOR_SUBTOTAL_BG)
+        ws.merge_cells(f"B{row}:C{row}")
+        _write_cell(ws, row, 2, f"◀ {cat} 소계 ({len(kws)}개)", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
+        _write_cell(ws, row, 4, "PC",        bold=True, bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 5, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 6, c_pc_imp,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 7, c_pc_clk,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 8, c_pc_cost,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 9, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 10, "",         bg=COLOR_SUBTOTAL_BG)
+        row += 1
+
+        ws.merge_cells(f"B{row}:C{row}")
+        _write_cell(ws, row, 2, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 4, "MO",        bold=True, bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 5, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 6, c_mo_imp,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 7, c_mo_clk,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 8, c_mo_cost,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 9, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 10, "",         bg=COLOR_SUBTOTAL_BG)
         row += 2
 
     # 전체 PC/MO 예산 합계
-    total_pc_budget = sum(_safe_int(r.get("pc_sim_cost", 0)) for r in rec_sorted)
-    total_mo_budget = sum(_safe_int(r.get("mo_sim_cost", 0)) for r in rec_sorted)
+    total_pc_budget  = sum(_safe_int(r.get("pc_sim_cost", 0)) for r in rec_sorted)
+    total_mo_budget  = sum(_safe_int(r.get("mo_sim_cost", 0)) for r in rec_sorted)
     total_budget_sum = total_pc_budget + total_mo_budget
 
-    ws.merge_cells(f"B{row}:D{row}")
+    ws.merge_cells(f"B{row}:C{row}")
     _write_cell(ws, row, 2, "PC 캠페인 예산", bold=True, bg="E3F2FD", align_h="left")
-    _write_cell(ws, row, 5, total_pc_budget, bold=True, bg="E3F2FD", num_fmt="#,##0")
-    ws.merge_cells(f"F{row}:H{row}")
-    _write_cell(ws, row, 6, "MO 캠페인 예산", bold=True, bg="E8F5E9", align_h="left")
-    _write_cell(ws, row, 9, total_mo_budget, bold=True, bg="E8F5E9", num_fmt="#,##0")
-    ws.merge_cells(f"J{row}:K{row}")
-    _write_cell(ws, row, 10, "합계", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-    _write_cell(ws, row, 12, total_budget_sum, bold=True, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+    _write_cell(ws, row, 5, total_pc_budget,  bold=True, bg="E3F2FD", num_fmt="#,##0")
     row += 1
-
-    ws.merge_cells(f"B{row}:N{row}")
-    _write_cell(ws, row, 2,
-                f"※ PC/MO 캠페인 분리 운영 기준: PC {total_pc_budget:,}원 + MO {total_mo_budget:,}원 = {total_budget_sum:,}원. 총 예산 내에서 각 캠페인 예산을 배분하여 운영하세요.",
-                font_size=8, font_color="1F4E79", italic=True, align_h="left")
+    ws.merge_cells(f"B{row}:C{row}")
+    _write_cell(ws, row, 2, "MO 캠페인 예산", bold=True, bg="E8F5E9", align_h="left")
+    _write_cell(ws, row, 5, total_mo_budget,  bold=True, bg="E8F5E9", num_fmt="#,##0")
+    row += 1
+    ws.merge_cells(f"B{row}:C{row}")
+    _write_cell(ws, row, 2, "합계",            bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
+    _write_cell(ws, row, 5, total_budget_sum,  bold=True, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
     row += 2
 
-    # 범례
-    ws.merge_cells(f"B{row}:N{row}")
+    ws.merge_cells(f"B{row}:{LAST_L}{row}")
     _write_cell(ws, row, 2,
                 "※ '추정' 표시 항목은 네이버 Estimate API 미지원 키워드로, 노출/클릭 데이터 기반 추정값입니다.",
                 font_size=9, font_color="595959", italic=True, align_h="left")
