@@ -136,12 +136,15 @@ def _get_avg_position_bids(keyword: str, device: str, ranks: list,
                             api_key: str, secret: str, customer_id: str) -> dict:
     """
     순위별 평균 입찰가 반환 {rank: bid} (캐시 포함)
+    캐시가 요청 ranks를 모두 포함하지 않으면 재호출 (rank 1 추가 등 대응).
     """
     api_kw = _normalize(keyword)
     path = _cache_path(api_kw, f"{device}_avgbid")
     cached = _load_cache(path)
     if cached is not None:
-        return {int(k): v for k, v in cached.items()}
+        cached_bids = {int(k): v for k, v in cached.items()}
+        if all(r in cached_bids for r in ranks):
+            return cached_bids
 
     result = _post(
         "/estimate/average-position-bid/keyword",
@@ -168,99 +171,135 @@ def _lookup_curve(curve: list, bid: int) -> dict:
 
 # ── 핵심: 순위별 성과 추출 ────────────────────────────────────────────────────
 
+def _validate_monotonicity(rank_results: dict) -> dict:
+    """
+    rank별 bid/clicks 단조성 검증.
+    rank 1 → 5 방향으로 bid는 감소, clicks도 감소해야 정상.
+    위반 rank는 제거.
+    """
+    valid      = {}
+    prev_bid    = float("inf")
+    prev_clicks = float("inf")
+    for rank in sorted(rank_results.keys()):
+        d      = rank_results[rank]
+        bid    = d.get("bid", 0)
+        clicks = d.get("clicks", 0)
+        if bid > prev_bid:
+            print(f"      [단조성 위반] rank {rank} bid={bid:,} > rank {rank-1} bid={int(prev_bid):,} → 제거")
+            continue
+        if rank > 1 and clicks > prev_clicks:
+            print(f"      [단조성 위반] rank {rank} clicks={clicks} > rank {rank-1} clicks={int(prev_clicks)} → 제거")
+            continue
+        valid[rank]  = d
+        prev_bid     = bid
+        prev_clicks  = clicks
+    return valid
+
+
 def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_id: str,
                               target_ranks: list = None,
                               kt_pc_impr: int = None, kt_mo_impr: int = None) -> dict:
     """
     순위별 예상 노출/클릭/입찰가/비용 반환.
 
-    1위: performance/keyword 커브 클릭 포화점
-    2~5위: average-position-bid bid를 커브에서 lookup
+    1위: API 2(average-position-bid) rank=1 bid와 커브 포화점 중 큰 값 사용
+    2~5위: API 2 bid를 커브에서 lookup
+    missing bid: 정확한 값 별도 호출 후 커브 캐시에도 저장
+    단조성 검증: bid/clicks 역전 rank는 자동 제거
 
     반환: {"PC": {1: {bid,impressions,clicks,cost,cpc,ctr}, ...}, "MO": {...}}
     """
     if target_ranks is None:
         target_ranks = [1, 2, 3, 4, 5]
 
-    lower_ranks = [r for r in target_ranks if r > 1]
+    api_kw  = _normalize(keyword)
     results = {"PC": {}, "MO": {}}
 
     for device, api_device in [("PC", "PC"), ("MO", "MOBILE")]:
-        # 커브 조회
         curve = _get_curve(keyword, api_device, api_key, secret, customer_id)
         time.sleep(0.15)
         if not curve:
             print(f"    [{keyword}][{device}] 커브 데이터 없음")
             continue
 
-        # 1위: 클릭 포화점
         active = [e for e in curve if e["impressions"] > 0]
         if not active:
             continue
-        max_clicks = max(e["clicks"] for e in active)
-        sat = next((e for e in active if e["clicks"] == max_clicks), None)
 
-        if 1 in target_ranks and sat:
-            results[device][1] = {
-                "bid":         sat["bid"],
-                "impressions": sat["impressions"],
-                "clicks":      sat["clicks"],
-                "cost":        sat["cost"],
-                "cpc":         round(sat["cost"] / sat["clicks"]) if sat["clicks"] > 0 else sat["bid"],
-                "ctr":         round(sat["clicks"] / sat["impressions"], 4) if sat["impressions"] > 0 else 0,
-                "click_ratio": round(sat["clicks"] / sat["impressions"], 4) if sat["impressions"] > 0 else 0,
+        # 커브 포화점 (1위 후보 #1)
+        max_clicks = max(e["clicks"] for e in active)
+        sat        = next((e for e in active if e["clicks"] == max_clicks), None)
+        sat_bid    = sat["bid"] if sat else 0
+
+        # API 2: rank 1 포함 전체 target_ranks 한번에 조회
+        api2_bids = _get_avg_position_bids(keyword, api_device, target_ranks,
+                                            api_key, secret, customer_id)
+        time.sleep(0.15)
+
+        # 1위 bid: API 2와 포화점 중 큰 값 (보수적·정확)
+        api2_rank1 = api2_bids.get(1, 0)
+        rank1_bid  = max(sat_bid, api2_rank1) if api2_rank1 > 0 else sat_bid
+
+        # rank별 확정 bid
+        rank_bids: dict[int, int] = {}
+        for rank in target_ranks:
+            if rank == 1:
+                if rank1_bid > 0:
+                    rank_bids[1] = rank1_bid
+            else:
+                b = api2_bids.get(rank, 0)
+                if b > 0:
+                    rank_bids[rank] = b
+
+        # missing bid 보완 + 커브 캐시 갱신
+        curve_bid_set = {e["bid"] for e in curve}
+        missing_bids  = [b for b in rank_bids.values() if b not in curve_bid_set]
+        if missing_bids:
+            extra = _post(
+                "/estimate/performance/keyword",
+                {"device": api_device, "key": api_kw, "bids": missing_bids},
+                api_key, secret, customer_id
+            )
+            if extra:
+                for e in extra.get("estimate", []):
+                    curve.append({
+                        "bid":         int(e["bid"]),
+                        "impressions": int(e.get("impressions", 0)),
+                        "clicks":      int(e.get("clicks", 0)),
+                        "cost":        int(e.get("cost", 0)),
+                    })
+                curve.sort(key=lambda x: x["bid"])
+                # 보강된 커브를 캐시에 저장 (다음 실행 시 재호출 방지)
+                _save_cache(_cache_path(api_kw, f"{api_device}_curve_kp"), curve)
+
+        curve_map = {e["bid"]: e for e in curve}
+
+        # rank별 성과 추출
+        rank_results: dict[int, dict] = {}
+        for rank in sorted(rank_bids.keys()):
+            bid   = rank_bids[rank]
+            entry = curve_map.get(bid) or _lookup_curve(curve, bid)
+            if not entry:
+                continue
+            clicks = entry["clicks"]
+            impr   = entry["impressions"]
+            cost   = entry["cost"]
+            rank_results[rank] = {
+                "bid":         bid,
+                "impressions": impr,
+                "clicks":      clicks,
+                "cost":        cost,
+                "cpc":         round(cost / clicks) if clicks > 0 else bid,
+                "ctr":         round(clicks / impr, 4) if impr > 0 else 0,
+                "click_ratio": round(clicks / impr, 4) if impr > 0 else 0,
             }
 
-        # 2~5위: average-position-bid bid로 정확한 성과 조회
-        if lower_ranks:
-            avg_bids = _get_avg_position_bids(keyword, api_device, lower_ranks,
-                                               api_key, secret, customer_id)
-            time.sleep(0.15)
-
-            # 커브에 없는 bid는 추가 호출로 정확한 값 확보
-            curve_bid_set = {e["bid"] for e in curve}
-            missing_bids  = [b for b in avg_bids.values() if b not in curve_bid_set]
-            if missing_bids:
-                extra = _post(
-                    "/estimate/performance/keyword",
-                    {"device": api_device, "key": _normalize(keyword),
-                     "bids": missing_bids},
-                    api_key, secret, customer_id
-                )
-                if extra:
-                    for e in extra.get("estimate", []):
-                        curve.append({
-                            "bid":         int(e["bid"]),
-                            "impressions": int(e.get("impressions", 0)),
-                            "clicks":      int(e.get("clicks", 0)),
-                            "cost":        int(e.get("cost", 0)),
-                        })
-                    curve.sort(key=lambda x: x["bid"])
-
-            curve_map = {e["bid"]: e for e in curve}
-
-            for rank in lower_ranks:
-                bid = avg_bids.get(rank)
-                if not bid:
-                    continue
-                entry = curve_map.get(bid) or _lookup_curve(curve, bid)
-                if not entry:
-                    continue
-                clicks = entry["clicks"]
-                impr   = entry["impressions"]
-                cost   = entry["cost"]
-                results[device][rank] = {
-                    "bid":         bid,
-                    "impressions": impr,
-                    "clicks":      clicks,
-                    "cost":        cost,
-                    "cpc":         round(cost / clicks) if clicks > 0 else bid,
-                    "ctr":         round(clicks / impr, 4) if impr > 0 else 0,
-                    "click_ratio": round(clicks / impr, 4) if impr > 0 else 0,
-                }
+        # 단조성 검증
+        results[device] = _validate_monotonicity(rank_results)
 
         r1 = results[device].get(1, {})
-        print(f"    [{keyword}][{device}] 1위: bid={r1.get('bid',0):,}원 / 클릭={r1.get('clicks',0):,}")
+        print(f"    [{keyword}][{device}] 1위: bid={r1.get('bid',0):,}원 / 클릭={r1.get('clicks',0):,}"
+              f" | API2={api2_rank1:,}원 / 포화점={sat_bid:,}원")
 
     return results
 
