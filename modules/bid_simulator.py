@@ -9,6 +9,7 @@ bid_simulator.py
   4. 업그레이드로 잔여 예산 소진
 """
 import json
+import math
 import os
 from modules.naver_estimate import (
     get_estimate_performance, get_rank_based_estimates,
@@ -300,7 +301,9 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None,
     cat_type        = cat_cfg.get("type", "general")
 
     if cat_type == "brand":
-        pc_bid = mo_bid = bid = 70
+        pc_bid = max(70, int(exposure_min_bid_pc or 0))
+        mo_bid = max(70, int(exposure_min_bid_mo or 0))
+        bid    = max(pc_bid, mo_bid)
         target_rank = 1
     else:
         base_cpc    = FALLBACK_CPC_BY_COMPETITION.get(competition, 350)
@@ -403,9 +406,12 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
             if total_clicks == 0:
                 continue
 
-            efficiency     = _safe_ratio(total_clicks, total_cost, 0.0)
+            # 트래픽 절대량(log) + 비용효율(log) + CTR 조합
+            # clicks/cost 단독 사용 시 저비용 소량 키워드가 과도하게 우선되는 문제 해결
+            volume_score   = math.log1p(total_clicks)
+            eff_log        = math.log1p(_safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0))
             traffic_bonus  = _safe_ratio(total_clicks, max(total_impr, 1), 0.0)
-            weighted_score = (efficiency * 0.82 + traffic_bonus * 0.18) * priority_weight
+            weighted_score = (volume_score * 0.50 + eff_log * 0.32 + traffic_bonus * 0.18) * priority_weight
 
             options.append({
                 "keyword":         keyword,
@@ -470,9 +476,10 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
             continue
 
         rank_info      = rank_map.get(bid, (5, 5, 5))
-        efficiency     = _safe_ratio(total_clicks, total_cost, 0.0)
+        volume_score   = math.log1p(total_clicks)
+        eff_log        = math.log1p(_safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0))
         traffic_bonus  = _safe_ratio(total_clicks, max(total_impr, 1), 0.0)
-        weighted_score = (efficiency * 0.82 + traffic_bonus * 0.18) * priority_weight
+        weighted_score = (volume_score * 0.50 + eff_log * 0.32 + traffic_bonus * 0.18) * priority_weight
 
         options.append({
             "keyword":         keyword,
@@ -587,32 +594,6 @@ def _upgrade_selected_with_budget(records, budget_left, selected_map):
     return spent
 
 
-def _select_additional_keywords_globally(all_records, budget_left, selected_map, soft_cap=None, current_spent=0):
-    """
-    효율 순으로 키워드 선택.
-    soft_cap: 전체 선택 비용 상한 (None이면 budget_left만 적용)
-    current_spent: 이미 선택된 키워드들의 총 비용
-    """
-    if budget_left <= 0:
-        return 0
-    spent = 0
-    for item in sorted(
-        [r for r in all_records if r["keyword"] not in selected_map],
-        key=lambda x: (-x["best_option"]["weighted_score"], x["best_option"]["cost"], x["keyword"])
-    ):
-        local_left = budget_left - spent
-        if local_left <= 0:
-            break
-        # 소프트 상한 체크: 원 예산의 120% 초과 시 중단
-        if soft_cap is not None and (current_spent + spent) >= soft_cap:
-            break
-        option = _pick_initial_option(item["options"], local_left)
-        if option is None:
-            continue
-        selected_map[item["keyword"]] = option
-        spent += option["cost"]
-    return spent
-
 
 def _apply_budget_cap(selected_map, all_records, total_budget):
     total_cost = sum(_real_cost(v) for v in selected_map.values())
@@ -652,7 +633,7 @@ def _apply_budget_cap(selected_map, all_records, total_budget):
         ):
             if total_cost <= total_budget:
                 break
-            total_cost -= selected_map.pop(keyword)["cost"]
+            total_cost -= _real_cost(selected_map.pop(keyword))
 
 
 def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=None):
@@ -870,11 +851,8 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             remaining -= _real_cost(opt)
             count += 1
 
-    # 3단계: 효율 순으로 전체 키워드 배정
-    # 핵심: 예산 상한(120%)을 _real_cost 기준으로 일관되게 추적
-    SOFT_CAP = total_budget * 1.20  # 원 예산 120% 소프트 상한
-
-    # 3-1: 일반/상품 카테고리 (상한 없음) - 효율 순, SOFT_CAP까지
+    # 3단계: 효율 순으로 전체 키워드 배정 (예산 100% 기준 직접 적용)
+    # 3-1: 일반/상품 카테고리 - weighted_score 순, 예산 내에서
     no_cap_records = sorted(
         [r for r in all_records
          if r["keyword"] not in selected_map
@@ -883,14 +861,14 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     )
     accumulated = sum(_real_cost(v) for v in selected_map.values())
     for item in no_cap_records:
-        if accumulated >= SOFT_CAP:
+        if accumulated >= total_budget:
             break
-        opt = _pick_initial_option(item["options"], SOFT_CAP - accumulated)
+        opt = _pick_initial_option(item["options"], total_budget - accumulated)
         if opt is None:
             continue
         cost = _real_cost(opt)
-        if accumulated + cost > SOFT_CAP:
-            continue  # 이 키워드 추가하면 상한 초과 → 건너뜀
+        if accumulated + cost > total_budget:
+            continue
         selected_map[item["keyword"]] = opt
         accumulated += cost
 
@@ -925,10 +903,8 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         accumulated = sum(_real_cost(v) for v in selected_map.values())
 
     # 4단계: 경쟁사 카테고리 배정 (max_budget_ratio 상한 내에서)
-    if accumulated >= SOFT_CAP:
-        budget_left = 0
-    else:
-        budget_left = max(total_budget - accumulated, 0)
+    accumulated = sum(_real_cost(v) for v in selected_map.values())
+    budget_left = max(total_budget - accumulated, 0)
     if budget_left > 0:
         for cat_name, cfg in cat_map.items():
             max_ratio = cfg.get("max_budget_ratio")
@@ -1024,9 +1000,9 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         pc_best  = _find_best_bid_for_device(all_opts, target_rank, "pc")
         mo_best  = _find_best_bid_for_device(all_opts, target_rank, "mo")
 
-        # Fallback 키워드는 pc_best/mo_best가 None → 옵션에 저장된 pc_bid/mo_bid 사용
-        pc_bid = pc_best["bid"] if pc_best else row.get("pc_bid", row["bid"])
-        mo_bid = mo_best["bid"] if mo_best else row.get("mo_bid", row["bid"])
+        # PC/MO 각각의 실제 입찰가 필드를 사용 (anchor "bid"가 아닌 pc_bid/mo_bid)
+        pc_bid = pc_best.get("pc_bid", pc_best["bid"]) if pc_best else row.get("pc_bid", row["bid"])
+        mo_bid = mo_best.get("mo_bid", mo_best["bid"]) if mo_best else row.get("mo_bid", row["bid"])
 
         # 성과 데이터: selected_map에서 선택된 row 기준 (비용 일관성)
         # pc_cost/mo_cost는 row에서 가져와야 SOFT_CAP 추적값과 일치
