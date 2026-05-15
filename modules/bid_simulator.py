@@ -1126,48 +1126,68 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
     cat_map = _get_cat_map()
 
     # 1. 현재 제안 키워드 최적화 옵션 (입찰가 올리면 개선되는 것)
-    # all_options_map이 있으면 API 재호출 없이 기존 데이터 재활용 (대부분의 케이스)
-    # 없으면 기존 방식으로 API 호출 (하위 호환)
-    # B안: 현재 입찰가 대비 올렸을 때 클릭 증가 효율이 좋은 키워드 추출
-    # 기준: 다음 단계 입찰가로 올렸을 때 클릭증가율이 20% 이상이고
-    #       클릭 증가 대비 비용 증가율(효율)이 일정 기준 이상인 것
+    # 예산 상한 없이 전체 커브 재조회 — _cap_options_by_budget으로 잘린 상위 bid 영역 복원
+    # 기준: 현재보다 높은 입찰가로 올렸을 때 클릭증가율 20% 이상이고 효율이 가장 좋은 것
+    from modules.naver_estimate import SCAN_BIDS
+    _sim_api_key, _sim_secret, _sim_cid = _get_api_keys()
+
     bid_up_rows = []
     for row in current_rows:
         if row.get("is_fallback", False):
             continue
 
-        keyword     = row.get("keyword", "")
-        category    = _norm_category(row.get("category", ""), cat_map)
-        cur_pc_bid  = row.get("proposed_bid_pc", 0) or row.get("proposed_bid", 0) or 0
-        cur_mo_bid  = row.get("proposed_bid_mo", 0) or row.get("proposed_bid", 0) or 0
-        cur_pc_rank = row.get("proposed_rank_pc", "-")
-        cur_mo_rank = row.get("proposed_rank_mo", "-")
+        keyword  = row.get("keyword", "")
+        category = _norm_category(row.get("category", ""), cat_map)
+        cur_pc_bid = row.get("proposed_bid_pc", 0) or row.get("proposed_bid", 0) or 0
+        cur_mo_bid = row.get("proposed_bid_mo", 0) or row.get("proposed_bid", 0) or 0
 
-        if not (all_options_map and keyword in all_options_map):
+        # 예산 상한 없이 전체 입찰 커브 조회 (캐시 활용, 추가 API 호출 없음)
+        full_estimates = get_estimate_performance(keyword, SCAN_BIDS,
+                                                  _sim_api_key, _sim_secret, _sim_cid)
+        if not full_estimates:
+            continue
+        rank_map_full = _estimate_rank_from_estimate_results(full_estimates)
+        full_opts = []
+        for est in full_estimates:
+            if est["clicks"] == 0:
+                continue
+            _bid = est["bid"]
+            _ri  = rank_map_full.get(_bid, (5, 5, 5))
+            full_opts.append({
+                "bid":       _bid,
+                "pc_clicks": est["pc_clicks"],
+                "mo_clicks": est["mo_clicks"],
+                "pc_cost":   est["pc_cost"],
+                "mo_cost":   est["mo_cost"],
+                "rank_pc":   _ri[1],
+                "rank_mo":   _ri[2],
+            })
+        if not full_opts:
             continue
 
-        all_opts = all_options_map[keyword]
-        # 현재 PC/MO 입찰가 기준 옵션 찾기
-        cur_pc_opt = next((o for o in all_opts if o.get("bid") == cur_pc_bid), None)
-        cur_mo_opt = next((o for o in all_opts if o.get("bid") == cur_mo_bid), None)
-        if not cur_pc_opt and not cur_mo_opt:
-            continue
+        # 현재 입찰가와 가장 가까운 옵션 찾기
+        cur_pc_opt = (next((o for o in full_opts if o["bid"] == cur_pc_bid), None)
+                      or min(full_opts, key=lambda x: abs(x["bid"] - cur_pc_bid)))
+        cur_mo_opt = (next((o for o in full_opts if o["bid"] == cur_mo_bid), None)
+                      or min(full_opts, key=lambda x: abs(x["bid"] - cur_mo_bid)))
 
-        cur_pc_clicks = (cur_pc_opt or {}).get("pc_clicks", 0) or 0
-        cur_mo_clicks = (cur_mo_opt or {}).get("mo_clicks", 0) or 0
+        cur_pc_clicks = cur_pc_opt.get("pc_clicks", 0) or 0
+        cur_mo_clicks = cur_mo_opt.get("mo_clicks", 0) or 0
         cur_total_clicks = cur_pc_clicks + cur_mo_clicks
         if cur_total_clicks <= 0:
             continue
 
+        # 내부 순위 기준으로 현재 순위 설정 (추천 순위와 동일한 기준으로 일관성 유지)
+        cur_pc_rank = cur_pc_opt.get("rank_pc", row.get("proposed_rank_pc", "-"))
+        cur_mo_rank = cur_mo_opt.get("rank_mo", row.get("proposed_rank_mo", "-"))
+
         # 현재보다 높은 입찰가 옵션들 중 클릭 증가 효율이 좋은 것 탐색
-        # PC: 현재 pc_bid보다 높은 옵션들
         better_pc_opts = sorted(
-            [o for o in all_opts if o.get("bid", 0) > cur_pc_bid and o.get("pc_clicks", 0) > cur_pc_clicks],
+            [o for o in full_opts if o["bid"] > cur_pc_bid and o.get("pc_clicks", 0) > cur_pc_clicks],
             key=lambda x: x["bid"]
         )
-        # MO: 현재 mo_bid보다 높은 옵션들
         better_mo_opts = sorted(
-            [o for o in all_opts if o.get("bid", 0) > cur_mo_bid and o.get("mo_clicks", 0) > cur_mo_clicks],
+            [o for o in full_opts if o["bid"] > cur_mo_bid and o.get("mo_clicks", 0) > cur_mo_clicks],
             key=lambda x: x["bid"]
         )
 
