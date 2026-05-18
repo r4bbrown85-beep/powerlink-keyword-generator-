@@ -262,7 +262,20 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
                     return val if val else ""
                 return ""
 
-            note = "입찰가제안" if fb else ("예산외" if not_selected else "")
+            already_reg  = kw_row.get("already_registered", False)
+            actual_rank  = kw_row.get("actual_avg_rank", 0)
+            if fb:
+                note = "입찰가제안"
+            elif not_selected:
+                note = "예산외"
+            elif already_reg and actual_rank > 0:
+                note = f"기등록·실측{actual_rank:.0f}위"
+            elif already_reg:
+                note = "기등록"
+            elif actual_rank > 0:
+                note = f"실측{actual_rank:.0f}위"
+            else:
+                note = ""
             keyword_str  = kw_row.get("keyword", "")
             category_str = kw_row.get("category", "")
 

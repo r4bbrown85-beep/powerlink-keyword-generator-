@@ -171,37 +171,22 @@ def get_priority_weight(keyword_row, cat_map=None):
 
 def _estimate_rank_from_estimate_results(estimate_results):
     """
-    입찰가별 PC/MO 순위를 각각 독립적으로 계산.
-    PC 순위: PC 클릭수 기준으로만 계산
-    MO 순위: MO 클릭수 기준으로만 계산
-    → 같은 입찰가라도 PC 1위 / MO 4위 이런 결과가 정확히 반영됨
+    API 1 커브 데이터로 PC/MO 순위를 CTR 기반으로 독립 추정.
+    PC_CTR_TABLE/MO_CTR_TABLE 기준 — 클릭 상대비율 방식보다 정확.
     """
     if not estimate_results:
         return {}
 
-    valid = [(e["bid"], e["pc_clicks"], e["mo_clicks"])
-             for e in estimate_results if e["clicks"] > 0]
-    if not valid:
-        return {}
-
-    max_pc = max(v[1] for v in valid) if valid else 1
-    max_mo = max(v[2] for v in valid) if valid else 1
-
     rank_map = {}
-    for bid, pc_clk, mo_clk in valid:
-        # PC 순위: PC 클릭 비율로만 계산 (MO 영향 없음)
-        pc_ratio = _safe_ratio(pc_clk, max(max_pc, 1), 0.0)
-        pc_rank  = max(1, min(10, int(10 - pc_ratio * 9)))
-
-        # MO 순위: MO 클릭 비율로만 계산 (PC 영향 없음)
-        mo_ratio = _safe_ratio(mo_clk, max(max_mo, 1), 0.0)
-        mo_rank  = max(1, min(10, int(10 - mo_ratio * 9)))
-
-        # 통합 순위는 참고용 (예산 배분 시 가중 평균)
-        # MO 검색량이 압도적으로 많으므로 MO 순위에 가중치
+    for e in estimate_results:
+        if e.get("clicks", 0) == 0:
+            continue
+        _, pc_rank, mo_rank = _estimate_rank_from_ctr_fallback(
+            e.get("pc_clicks", 0), e.get("pc_impressions", 0),
+            e.get("mo_clicks", 0), e.get("mo_impressions", 0),
+        )
         total_rank = max(1, min(10, round(pc_rank * 0.3 + mo_rank * 0.7)))
-
-        rank_map[bid] = (total_rank, pc_rank, mo_rank)
+        rank_map[e["bid"]] = (total_rank, pc_rank, mo_rank)
     return rank_map
 
 

@@ -24,6 +24,7 @@ from modules.excel_writer import save_proposal_excel
 from modules.naver_keyword_api import get_keyword_stats, get_related_keywords, get_related_keywords_multi
 from modules.keyword_normalizer import normalize_keyword_for_ad, normalize_keyword_for_proposal
 from modules.bid_simulator import optimize_budget, simulate_expanded, simulate_scenarios
+from modules.naver_stats import get_registered_keywords, get_keyword_actual_stats
 
 load_dotenv()
 
@@ -869,6 +870,32 @@ def run_single_brand(brand_profile, brand_name):
     # 5. 네이버 데이터 조회
     print("  [5] 네이버 데이터 조회...")
     rows = attach_naver_stats(rows)
+
+    # 5-1. 계정 실집행 데이터 조회 (선택적 — API 권한 없으면 빈 결과)
+    _api_key     = os.getenv("NAVER_API_KEY", "")
+    _secret      = os.getenv("NAVER_SECRET_KEY", "")
+    _customer_id = os.getenv("NAVER_CUSTOMER_ID", "")
+    registered_kws = set()
+    actual_stats   = {}
+    if _api_key and _secret and _customer_id:
+        try:
+            registered_kws = get_registered_keywords(_api_key, _secret, _customer_id)
+            actual_stats   = get_keyword_actual_stats(_api_key, _secret, _customer_id)
+        except Exception as e:
+            print(f"  [실적] 계정 데이터 조회 실패 (무시): {e}")
+
+    # 기등록 여부 + 실측 순위 태깅
+    for row in rows:
+        kw = row.get("keyword", "")
+        row["already_registered"] = kw in registered_kws
+        if kw in actual_stats:
+            row["actual_avg_rank"] = actual_stats[kw].get("avg_rank", 0)
+            row["actual_ctr"]      = actual_stats[kw].get("ctr", 0)
+            row["actual_clicks"]   = actual_stats[kw].get("clicks", 0)
+
+    if registered_kws:
+        already_cnt = sum(1 for r in rows if r.get("already_registered"))
+        print(f"  [계정] 기등록 키워드: {already_cnt}개 / 전체 {len(rows)}개")
 
     # 6. 추천 키워드 선정
     for row in rows:
