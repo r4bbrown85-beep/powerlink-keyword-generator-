@@ -78,16 +78,25 @@ def _headers(api_key: str, secret: str, customer_id: str, uri: str) -> dict:
         "X-Customer": str(customer_id), "X-Signature": sig,
     }
 
-def _post(uri: str, payload: dict, api_key: str, secret: str, customer_id: str):
-    try:
-        resp = requests.post(
-            f"{BASE_URL}{uri}",
-            headers=_headers(api_key, secret, customer_id, uri),
-            json=payload, timeout=60
-        )
-        return resp.json() if resp.ok else None
-    except Exception:
-        return None
+def _post(uri: str, payload: dict, api_key: str, secret: str, customer_id: str,
+          max_retries: int = 3):
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(
+                f"{BASE_URL}{uri}",
+                headers=_headers(api_key, secret, customer_id, uri),
+                json=payload, timeout=60
+            )
+            if resp.status_code == 429:
+                wait = 2 ** attempt
+                print(f"    [API] 429 Rate limit — {wait}초 대기 후 재시도 ({attempt+1}/{max_retries})")
+                time.sleep(wait)
+                continue
+            return resp.json() if resp.ok else None
+        except Exception:
+            return None
+    print(f"    [API] {uri} 재시도 {max_retries}회 초과 — 스킵")
+    return None
 
 
 # ── API 1: performance/keyword 커브 ───────────────────────────────────────────

@@ -359,7 +359,7 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None,
         "anchor_bid":      bid,
         "priority_weight": round(priority_weight, 4),
         "efficiency":      0.0,
-        "weighted_score":  0.0,
+        "weighted_score":  round(priority_weight * 0.5, 4),
         "is_fallback":     True,
     }]
     return options
@@ -408,8 +408,9 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
 
             # 트래픽 절대량(log) + 비용효율(log) + CTR 조합
             # clicks/cost 단독 사용 시 저비용 소량 키워드가 과도하게 우선되는 문제 해결
+            efficiency     = _safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0)
             volume_score   = math.log1p(total_clicks)
-            eff_log        = math.log1p(_safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0))
+            eff_log        = math.log1p(efficiency)
             traffic_bonus  = _safe_ratio(total_clicks, max(total_impr, 1), 0.0)
             weighted_score = (volume_score * 0.50 + eff_log * 0.32 + traffic_bonus * 0.18) * priority_weight
 
@@ -440,7 +441,7 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
                 "mo_cost":         mo_cost,
                 "anchor_bid":      0,
                 "priority_weight": round(priority_weight, 4),
-                "efficiency":      efficiency,
+                "efficiency":      round(efficiency, 4),
                 "weighted_score":  weighted_score,
                 "is_fallback":     False,
             })
@@ -476,8 +477,9 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
             continue
 
         rank_info      = rank_map.get(bid, (5, 5, 5))
+        efficiency     = _safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0)
         volume_score   = math.log1p(total_clicks)
-        eff_log        = math.log1p(_safe_ratio(total_clicks * 1000, max(total_cost, 1), 0.0))
+        eff_log        = math.log1p(efficiency)
         traffic_bonus  = _safe_ratio(total_clicks, max(total_impr, 1), 0.0)
         weighted_score = (volume_score * 0.50 + eff_log * 0.32 + traffic_bonus * 0.18) * priority_weight
 
@@ -508,7 +510,7 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
             "mo_cost":         mo_cost,
             "anchor_bid":      0,
             "priority_weight": round(priority_weight, 4),
-            "efficiency":      efficiency,
+            "efficiency":      round(efficiency, 4),
             "weighted_score":  weighted_score,
             "is_fallback":     False,
         })
@@ -694,7 +696,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                     "mo_impressions": 0, "mo_clicks": 0, "mo_ctr": 0.0,
                     "mo_cpc": 0, "mo_cost": 0,
                     "anchor_bid": 70, "priority_weight": 0.5,
-                    "efficiency": 0.0, "weighted_score": 0.0,
+                    "efficiency": 0.0, "weighted_score": 0.25,
                     "is_fallback": True,
                 }]
                 item = {

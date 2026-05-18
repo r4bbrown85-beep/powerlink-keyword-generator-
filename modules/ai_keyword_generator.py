@@ -621,7 +621,6 @@ def _verify_keywords_by_ai(keywords_by_category: dict, brand: str, category: str
             user=verify_prompt,
             temperature=0.0,
             max_tokens=2048,
-            model="claude-haiku-4-5-20251001",
         )
         data = _safe_json_loads(content)
         remove_set = set(data.get("remove", []))
