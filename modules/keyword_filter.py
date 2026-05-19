@@ -64,21 +64,35 @@ def filter_rows_by_brand_context(rows: list, profile: dict) -> list:
     return result
 
 
-def filter_ad_keywords(keywords):
-    banned = [
-        # 정보 탐색성 (구매 의도 없음)
-        "뜻", "의미", "역사", "정의", "유래", "소개", "이란", "무엇",
-        "영어로", "일본어로", "중국어로", "어원",
-        # 폐기/처분 의도 (구매 의도 없음)
-        "폐기", "버리는법", "처분방법", "재활용방법",
-        # 무료 추구 (유료 광고 클릭 가능성 없음)
-        "공짜", "무료로 받",
-        # 비구매 의도 — 금융/채용/주가
-        "주가", "주식", "채용", "취업", "공채", "입사지원", "합병",
-        # 수리/서비스 업체 검색 (제품 구매 의도 없음)
-        "수리점", "수리센터", "수리업체", "수리기사",
-    ]
+# ── 범용 비구매 의도 시그널 ──────────────────────────────────────────────────
+# 어떤 광고주든 관계없이 구매/전환 의도가 없는 검색 패턴.
+# 업종·도메인 의존성이 없으므로 여기서 전역 차단.
+# (교육과정, 정부지원 등 업종별 도메인 키워드는 main_multi._DOMAIN_MISMATCH_RULES에서 처리)
+_NON_PURCHASE_INTENT = [
+    # 정의·정보 탐색 (구매 아닌 학습 의도)
+    "뜻", "의미", "역사", "정의", "유래", "소개", "이란", "무엇",
+    "영어로", "일본어로", "중국어로", "어원",
+    # 폐기·처분 (제품 구매 의도 없음)
+    "폐기", "버리는법", "처분방법", "재활용방법",
+    # 무료 획득 의도 (유료 광고 클릭 전환 불가)
+    "공짜", "무료로 받",
+    # 채용·주가 (상품/서비스 구매 의도 없음)
+    "주가", "주식", "채용", "취업", "공채", "입사지원", "합병",
+    # 수리업체 검색 (신규 구매 의도 없음)
+    "수리점", "수리센터", "수리업체", "수리기사",
+]
 
+# ── 단독으로 광고 키워드가 될 수 없는 1개념 명사 ────────────────────────────
+# 어떤 수식어도 없는 최상위 비즈니스 개념 명사.
+# 검색 의도가 특정되지 않아 전환율이 사실상 0 — 업종 무관하게 전역 차단.
+# ex) "기업" 단독 검색 → 의도 불명. "기업용 그룹웨어" 검색 → 유효.
+_STANDALONE_GENERIC_NOUNS = frozenset([
+    "업무", "기업", "회사", "영업", "관리", "운영", "기관",
+    "단체", "조직", "업체", "사업", "사무", "사무실",
+])
+
+
+def filter_ad_keywords(keywords):
     result = []
 
     for k in keywords:
@@ -86,13 +100,14 @@ def filter_ad_keywords(keywords):
         if not k_str:
             continue
 
-        blocked = False
-        for b in banned:
-            if b in k_str:
-                blocked = True
-                break
+        # 완전 일치: 단독 개념 명사 (수식어 없는 최상위 명사는 광고 타겟팅 불가)
+        if k_str in _STANDALONE_GENERIC_NOUNS:
+            continue
 
-        if not blocked:
-            result.append(k_str)
+        # 부분 포함: 범용 비구매 의도 시그널
+        if any(pat in k_str for pat in _NON_PURCHASE_INTENT):
+            continue
+
+        result.append(k_str)
 
     return list(dict.fromkeys(result))

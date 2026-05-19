@@ -1063,12 +1063,12 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
 
 # ── 확장 제안 시뮬레이션 ────────────────────────────────────────────────────
-def _get_best_options_for_kw(row, cat_map):
+def _get_best_options_for_kw(row, cat_map, target_rank_override=None):
     """키워드 하나의 모든 입찰가 후보별 PC/MO 최적 옵션 반환."""
     keyword   = row.get("keyword", "")
     category  = _norm_category(row.get("category", ""), cat_map)
     cat_cfg   = cat_map.get(category, {})
-    target_rank = cat_cfg.get("target_rank", 3)
+    target_rank = target_rank_override if target_rank_override is not None else cat_cfg.get("target_rank", 3)
 
     pc_impr = _to_float(row.get("pc_impr", 0))
     mo_impr = _to_float(row.get("mo_impr", 0))
@@ -1171,12 +1171,78 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
         if row.get("is_fallback", False):
             continue
 
-        keyword  = row.get("keyword", "")
-        category = _norm_category(row.get("category", ""), cat_map)
-        cur_pc_bid = row.get("proposed_bid_pc", 0) or row.get("proposed_bid", 0) or 0
-        cur_mo_bid = row.get("proposed_bid_mo", 0) or row.get("proposed_bid", 0) or 0
+        keyword       = row.get("keyword", "")
+        category      = _norm_category(row.get("category", ""), cat_map)
+        cur_pc_bid    = row.get("proposed_bid_pc", 0) or row.get("proposed_bid", 0) or 0
+        cur_mo_bid    = row.get("proposed_bid_mo", 0) or row.get("proposed_bid", 0) or 0
+        cur_pc_clicks = int(row.get("pc_sim_clicks", 0) or 0)
+        cur_mo_clicks = int(row.get("mo_sim_clicks", 0) or 0)
+        cur_pc_cost   = int(row.get("pc_sim_cost", 0) or 0)
+        cur_mo_cost   = int(row.get("mo_sim_cost", 0) or 0)
 
-        # 예산 상한 없이 전체 입찰 커브 조회 (캐시 활용, 추가 API 호출 없음)
+        _rpc = row.get("proposed_rank_pc", 10)
+        _rmo = row.get("proposed_rank_mo", 10)
+        cur_pc_rank = int(_rpc) if isinstance(_rpc, (int, float)) and _rpc != "" else 10
+        cur_mo_rank = int(_rmo) if isinstance(_rmo, (int, float)) and _rmo != "" else 10
+
+        if cur_pc_clicks + cur_mo_clicks <= 0:
+            continue
+
+        best_pc_up = best_mo_up = None
+        add_pc_clicks = add_mo_clicks = add_pc_cost = add_mo_cost = 0
+        pc_eff = mo_eff = 0.0
+
+        # ── 우선: all_options_map 캐시 사용 (API 재호출 없음) ─────────────────
+        if all_options_map and keyword in all_options_map:
+            opts = all_options_map[keyword]
+
+            # PC: 현재 순위보다 좋고(낮은 숫자) 클릭이 더 많은 최소 비용 옵션
+            better_pc = sorted(
+                [o for o in opts
+                 if 0 < (o.get("rank_pc") or 99) < cur_pc_rank
+                 and (o.get("pc_clicks", 0) or 0) > cur_pc_clicks],
+                key=lambda x: x.get("pc_cost", 0)
+            )
+            # MO: 현재 순위보다 좋고 클릭이 더 많은 최소 비용 옵션
+            better_mo = sorted(
+                [o for o in opts
+                 if 0 < (o.get("rank_mo") or 99) < cur_mo_rank
+                 and (o.get("mo_clicks", 0) or 0) > cur_mo_clicks],
+                key=lambda x: x.get("mo_cost", 0)
+            )
+            best_pc_up = better_pc[0] if better_pc else None
+            best_mo_up = better_mo[0] if better_mo else None
+
+            if best_pc_up or best_mo_up:
+                add_pc_clicks = max(0, (best_pc_up.get("pc_clicks", 0) or 0) - cur_pc_clicks) if best_pc_up else 0
+                add_mo_clicks = max(0, (best_mo_up.get("mo_clicks", 0) or 0) - cur_mo_clicks) if best_mo_up else 0
+                add_pc_cost   = max(0, (best_pc_up.get("pc_cost", 0) or 0) - cur_pc_cost) if best_pc_up else 0
+                add_mo_cost   = max(0, (best_mo_up.get("mo_cost", 0) or 0) - cur_mo_cost) if best_mo_up else 0
+                pc_eff = round(add_pc_clicks / max(add_pc_cost, 1) * 1000, 1)
+                mo_eff = round(add_mo_clicks / max(add_mo_cost, 1) * 1000, 1)
+
+                if add_pc_clicks + add_mo_clicks > 0 and add_pc_cost + add_mo_cost > 0:
+                    bid_up_rows.append({
+                        "keyword":        keyword,
+                        "category":       category,
+                        "pc_bid":         best_pc_up.get("pc_bid", cur_pc_bid) if best_pc_up else cur_pc_bid,
+                        "mo_bid":         best_mo_up.get("mo_bid", cur_mo_bid) if best_mo_up else cur_mo_bid,
+                        "rank_pc":        best_pc_up.get("rank_pc", cur_pc_rank) if best_pc_up else cur_pc_rank,
+                        "rank_mo":        best_mo_up.get("rank_mo", cur_mo_rank) if best_mo_up else cur_mo_rank,
+                        "add_pc_clicks":  add_pc_clicks,
+                        "add_mo_clicks":  add_mo_clicks,
+                        "add_pc_cost":    add_pc_cost,
+                        "add_mo_cost":    add_mo_cost,
+                        "pc_efficiency":  pc_eff,
+                        "mo_efficiency":  mo_eff,
+                        "cur_pc_bid":     cur_pc_bid,
+                        "cur_mo_bid":     cur_mo_bid,
+                        "cur_pc_rank":    cur_pc_rank,
+                        "cur_mo_rank":    cur_mo_rank,
+                    })
+            continue  # 캐시 처리 완료 → API 재호출 불필요
+
+        # ── Fallback: API 1 커브 기반 (all_options_map 없는 경우) ───────────
         full_estimates = get_estimate_performance(keyword, SCAN_BIDS,
                                                   _sim_api_key, _sim_secret, _sim_cid)
         if not full_estimates:
@@ -1200,96 +1266,77 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
         if not full_opts:
             continue
 
-        # 현재 입찰가와 가장 가까운 옵션 찾기
         cur_pc_opt = (next((o for o in full_opts if o["bid"] == cur_pc_bid), None)
                       or min(full_opts, key=lambda x: abs(x["bid"] - cur_pc_bid)))
         cur_mo_opt = (next((o for o in full_opts if o["bid"] == cur_mo_bid), None)
                       or min(full_opts, key=lambda x: abs(x["bid"] - cur_mo_bid)))
 
-        cur_pc_clicks = cur_pc_opt.get("pc_clicks", 0) or 0
-        cur_mo_clicks = cur_mo_opt.get("mo_clicks", 0) or 0
-        cur_total_clicks = cur_pc_clicks + cur_mo_clicks
-        if cur_total_clicks <= 0:
+        fb_pc_clicks = cur_pc_opt.get("pc_clicks", 0) or 0
+        fb_mo_clicks = cur_mo_opt.get("mo_clicks", 0) or 0
+        if fb_pc_clicks + fb_mo_clicks <= 0:
             continue
 
-        # 내부 순위 기준으로 현재 순위 설정 (추천 순위와 동일한 기준으로 일관성 유지)
-        cur_pc_rank = cur_pc_opt.get("rank_pc", row.get("proposed_rank_pc", "-"))
-        cur_mo_rank = cur_mo_opt.get("rank_mo", row.get("proposed_rank_mo", "-"))
+        fb_pc_rank = cur_pc_opt.get("rank_pc", cur_pc_rank)
+        fb_mo_rank = cur_mo_opt.get("rank_mo", cur_mo_rank)
+        if not isinstance(fb_pc_rank, int): fb_pc_rank = cur_pc_rank
+        if not isinstance(fb_mo_rank, int): fb_mo_rank = cur_mo_rank
 
-        # 현재보다 높은 입찰가 옵션들 중 클릭 증가 효율이 좋은 것 탐색
         better_pc_opts = sorted(
-            [o for o in full_opts if o["bid"] > cur_pc_bid and o.get("pc_clicks", 0) > cur_pc_clicks],
+            [o for o in full_opts if o["bid"] > cur_pc_bid and o.get("pc_clicks", 0) > fb_pc_clicks],
             key=lambda x: x["bid"]
         )
         better_mo_opts = sorted(
-            [o for o in full_opts if o["bid"] > cur_mo_bid and o.get("mo_clicks", 0) > cur_mo_clicks],
+            [o for o in full_opts if o["bid"] > cur_mo_bid and o.get("mo_clicks", 0) > fb_mo_clicks],
             key=lambda x: x["bid"]
         )
-
         if not better_pc_opts and not better_mo_opts:
             continue
 
-        # PC 최적 업그레이드: 클릭 증가율 대비 비용 증가율이 가장 좋은 것
-        best_pc_up = None
-        best_pc_efficiency = 0
+        best_pc_efficiency = best_mo_efficiency = 0.0
         for opt in better_pc_opts:
-            click_gain = opt["pc_clicks"] - cur_pc_clicks
-            cost_gain  = opt.get("pc_cost", 0) - (cur_pc_opt or {}).get("pc_cost", 0)
-            if cost_gain <= 0:
+            cg = opt["pc_clicks"] - fb_pc_clicks
+            dg = opt.get("pc_cost", 0) - (cur_pc_opt or {}).get("pc_cost", 0)
+            if dg <= 0 or cg <= 0:
                 continue
-            click_rate = click_gain / max(cur_pc_clicks, 1)   # 클릭 증가율
-            efficiency = click_gain / cost_gain                 # 클릭당 추가비용 효율
-            # 클릭 증가율 20% 이상이고 효율이 좋은 것
-            if click_rate >= 0.20 and efficiency > best_pc_efficiency:
-                best_pc_efficiency = efficiency
+            eff = cg / dg
+            if eff > best_pc_efficiency:
+                best_pc_efficiency = eff
                 best_pc_up = opt
-
-        # MO 최적 업그레이드
-        best_mo_up = None
-        best_mo_efficiency = 0
         for opt in better_mo_opts:
-            click_gain = opt["mo_clicks"] - cur_mo_clicks
-            cost_gain  = opt.get("mo_cost", 0) - (cur_mo_opt or {}).get("mo_cost", 0)
-            if cost_gain <= 0:
+            cg = opt["mo_clicks"] - fb_mo_clicks
+            dg = opt.get("mo_cost", 0) - (cur_mo_opt or {}).get("mo_cost", 0)
+            if dg <= 0 or cg <= 0:
                 continue
-            click_rate = click_gain / max(cur_mo_clicks, 1)
-            efficiency = click_gain / cost_gain
-            if click_rate >= 0.20 and efficiency > best_mo_efficiency:
-                best_mo_efficiency = efficiency
+            eff = cg / dg
+            if eff > best_mo_efficiency:
+                best_mo_efficiency = eff
                 best_mo_up = opt
 
         if not best_pc_up and not best_mo_up:
             continue
 
-        # 추천 입찰가: PC/MO 각각 최적 업그레이드 옵션
-        rec_pc_bid  = best_pc_up["bid"]  if best_pc_up  else cur_pc_bid
-        rec_mo_bid  = best_mo_up["bid"]  if best_mo_up  else cur_mo_bid
-        rec_pc_rank = best_pc_up.get("rank_pc", cur_pc_rank) if best_pc_up else cur_pc_rank
-        rec_mo_rank = best_mo_up.get("rank_mo", cur_mo_rank) if best_mo_up else cur_mo_rank
-
-        # 추가 클릭 / 추가 비용
-        add_pc_clicks = (best_pc_up["pc_clicks"] - cur_pc_clicks) if best_pc_up else 0
-        add_mo_clicks = (best_mo_up["mo_clicks"] - cur_mo_clicks) if best_mo_up else 0
+        add_pc_clicks = (best_pc_up["pc_clicks"] - fb_pc_clicks) if best_pc_up else 0
+        add_mo_clicks = (best_mo_up["mo_clicks"] - fb_mo_clicks) if best_mo_up else 0
         add_pc_cost   = (best_pc_up.get("pc_cost",0) - (cur_pc_opt or {}).get("pc_cost",0)) if best_pc_up else 0
         add_mo_cost   = (best_mo_up.get("mo_cost",0) - (cur_mo_opt or {}).get("mo_cost",0)) if best_mo_up else 0
 
         bid_up_rows.append({
             "keyword":        keyword,
             "category":       category,
-            "pc_bid":         rec_pc_bid,
-            "mo_bid":         rec_mo_bid,
-            "rank_pc":        rec_pc_rank,
-            "rank_mo":        rec_mo_rank,
+            "pc_bid":         best_pc_up["bid"] if best_pc_up else cur_pc_bid,
+            "mo_bid":         best_mo_up["bid"] if best_mo_up else cur_mo_bid,
+            "rank_pc":        best_pc_up.get("rank_pc", fb_pc_rank) if best_pc_up else fb_pc_rank,
+            "rank_mo":        best_mo_up.get("rank_mo", fb_mo_rank) if best_mo_up else fb_mo_rank,
             "add_pc_clicks":  add_pc_clicks,
             "add_mo_clicks":  add_mo_clicks,
             "add_pc_cost":    add_pc_cost,
             "add_mo_cost":    add_mo_cost,
-            "pc_efficiency":  round(best_pc_efficiency * 1000, 1),  # 1000원당 추가 클릭
+            "pc_efficiency":  round(best_pc_efficiency * 1000, 1),
             "mo_efficiency":  round(best_mo_efficiency * 1000, 1),
             "cur_pc_bid":     cur_pc_bid,
             "cur_mo_bid":     cur_mo_bid,
-            "cur_pc_rank":    cur_pc_rank,
-            "cur_mo_rank":    cur_mo_rank,
+            "cur_pc_rank":    fb_pc_rank,
+            "cur_mo_rank":    fb_mo_rank,
         })
 
     # 효율 높은 순 정렬 (PC+MO 추가 클릭 합산)
@@ -1384,4 +1431,127 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
         "bid_up_rows": bid_up_rows,
         "new_kw_rows": new_kw_rows,
         "scenarios":   scenarios,
+    }
+
+
+def simulate_unconstrained_optimal(current_rows, not_sel_rows):
+    """
+    예산 제한 없는 최적 효율 제안 시뮬레이션.
+
+    모든 키워드(현재 제안 + 예산 부족으로 제외된 키워드)를 포함하되,
+    키워드 우선순위(점수·타입)에 따라 목표 순위를 차등 배정:
+      Tier 1 — 브랜드·핵심(score≥70)  : 목표순위 2위
+      Tier 2 — 일반 중요도(score 50~70): 목표순위 4위
+      Tier 3 — 보조 키워드(score<50)   : 목표순위 6위
+
+    반환:
+      {
+        "optimal_rows": [
+            {keyword, category, keyword_type, recommendation_score, tier,
+             proposed_bid_pc, proposed_bid_mo,
+             pc_impressions, mo_impressions, pc_clicks, mo_clicks,
+             pc_cost, mo_cost, proposed_rank_pc, proposed_rank_mo,
+             is_fallback, source},
+            ...
+        ],
+        "total_cost":   int,
+        "total_clicks": int,
+        "total_impressions": int,
+    }
+    """
+    cat_map = _get_cat_map()
+    optimal_rows = []
+
+    def _tier(row):
+        kw_type = str(row.get("keyword_type", "GENERIC")).upper()
+        score   = row.get("recommendation_score", 50) or 50
+        if kw_type == "BRAND" or score >= 70:
+            return 1, 2          # (tier, target_rank)
+        elif score >= 55:
+            return 2, 4
+        else:
+            return 3, 6
+
+    # 1. 현재 제안에 이미 있는 키워드 — 기존 최적 bid 그대로 사용
+    for row in current_rows:
+        tier_num, _ = _tier(row)
+        optimal_rows.append({
+            "keyword":              row.get("keyword", ""),
+            "category":             row.get("category", "일반 키워드"),
+            "keyword_type":         row.get("keyword_type", "GENERIC"),
+            "recommendation_score": row.get("recommendation_score", 50),
+            "tier":                 tier_num,
+            "proposed_bid_pc":      row.get("proposed_bid_pc") or row.get("proposed_bid", 0),
+            "proposed_bid_mo":      row.get("proposed_bid_mo") or row.get("proposed_bid", 0),
+            "pc_impressions":       row.get("pc_sim_impressions", 0) or 0,
+            "mo_impressions":       row.get("mo_sim_impressions", 0) or 0,
+            "pc_clicks":            row.get("pc_sim_clicks", 0) or 0,
+            "mo_clicks":            row.get("mo_sim_clicks", 0) or 0,
+            "pc_cost":              row.get("pc_sim_cost", 0) or 0,
+            "mo_cost":              row.get("mo_sim_cost", 0) or 0,
+            "proposed_rank_pc":     row.get("proposed_rank_pc", "-"),
+            "proposed_rank_mo":     row.get("proposed_rank_mo", "-"),
+            "is_fallback":          row.get("is_fallback", False),
+            "source":               "current",
+        })
+
+    # 2. 예산 부족으로 제외된 키워드 — 우선순위 기반 목표순위로 재계산
+    skipped = 0
+    for row in not_sel_rows:
+        tier_num, t_rank = _tier(row)
+
+        if row.get("is_fallback", False):
+            # Fallback 키워드: exposure_minimum 기반 bid 사용
+            bid_pc = row.get("proposed_bid_pc") or row.get("proposed_bid", 300)
+            bid_mo = row.get("proposed_bid_mo") or bid_pc
+            optimal_rows.append({
+                "keyword":              row.get("keyword", ""),
+                "category":             row.get("category", "일반 키워드"),
+                "keyword_type":         row.get("keyword_type", "GENERIC"),
+                "recommendation_score": row.get("recommendation_score", 50),
+                "tier":                 tier_num,
+                "proposed_bid_pc":      bid_pc,
+                "proposed_bid_mo":      bid_mo,
+                "pc_impressions": 0, "mo_impressions": 0,
+                "pc_clicks": 0, "mo_clicks": 0,
+                "pc_cost": 0, "mo_cost": 0,
+                "proposed_rank_pc": "-", "proposed_rank_mo": "-",
+                "is_fallback": True,
+                "source": "budget_cut",
+            })
+            continue
+
+        # 검색량이 있는 키워드만 API 조회
+        if (row.get("pc_impr", 0) or 0) <= 0 and (row.get("mo_impr", 0) or 0) <= 0:
+            skipped += 1
+            continue
+
+        opt = _get_best_options_for_kw(row, cat_map, target_rank_override=t_rank)
+        if not opt:
+            skipped += 1
+            continue
+
+        opt["recommendation_score"] = row.get("recommendation_score", 50)
+        opt["tier"]   = tier_num
+        opt["source"] = "budget_cut"
+        # 필드명 통일
+        opt["proposed_bid_pc"] = opt.pop("pc_bid", 0)
+        opt["proposed_bid_mo"] = opt.pop("mo_bid", 0)
+        opt["proposed_rank_pc"] = opt.pop("rank_pc", "-")
+        opt["proposed_rank_mo"] = opt.pop("rank_mo", "-")
+        optimal_rows.append(opt)
+
+    total_cost   = sum((r.get("pc_cost", 0) or 0) + (r.get("mo_cost", 0) or 0)
+                       for r in optimal_rows)
+    total_clicks = sum((r.get("pc_clicks", 0) or 0) + (r.get("mo_clicks", 0) or 0)
+                       for r in optimal_rows)
+    total_impr   = sum((r.get("pc_impressions", 0) or 0) + (r.get("mo_impressions", 0) or 0)
+                       for r in optimal_rows)
+
+    print(f"  [최적효율] 총 {len(optimal_rows)}개 키워드 / 예상 월 비용: {total_cost:,}원 / 스킵: {skipped}개")
+    return {
+        "optimal_rows":       optimal_rows,
+        "total_cost":         total_cost,
+        "total_clicks":       total_clicks,
+        "total_impressions":  total_impr,
     }

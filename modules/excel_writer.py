@@ -72,7 +72,7 @@ def _write_cell(ws, row, col, value, bold=False, bg=None,
 # ── 메인 ──────────────────────────────────────────────────────
 def save_proposal_excel(rows, recommended_rows, category_desc,
                         summary_text, advertiser, standby_rows=None,
-                        scenario_data=None):
+                        scenario_data=None, optimal_data=None):
     os.makedirs("output", exist_ok=True)
     ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"output/{advertiser}_proposal_keywords_{ts}.xlsx"
@@ -105,6 +105,10 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
     # 확장 제안 시트 추가
     if scenario_data:
         _write_expanded_sheet(wb.create_sheet("확장제안"), scenario_data, advertiser, recommended_rows)
+
+    # 최적 효율 제안 시트 추가 (예산 무제한)
+    if optimal_data and optimal_data.get("optimal_rows"):
+        _write_optimal_sheet(wb.create_sheet("최적효율제안"), optimal_data, advertiser)
 
     wb.save(output_path)
     print(f"✅ 엑셀 저장 완료: {output_path}")
@@ -785,3 +789,128 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
             _write_cell(ws, row, 10, kw_row.get("rank_pc", "-"),      bg=bg, bold=improved)
             _write_cell(ws, row, 11, kw_row.get("rank_mo", "-"),      bg=bg, bold=improved)
             row += 1
+
+
+# ── 최적 효율 제안 시트 ─────────────────────────────────────────
+_TIER_LABEL = {1: "★ 핵심", 2: "◆ 중요", 3: "▷ 보조"}
+_TIER_COLOR = {1: "FFF2CC", 2: "E8F5E9", 3: "F3F3F3"}
+
+
+def _write_optimal_sheet(ws, optimal_data, advertiser):
+    """예산 제한 없는 최적 효율 제안 시트."""
+    _set_col_widths(ws, {1: 3, 2: 28, 3: 14, 4: 10,
+                         5: 10, 6: 10, 7: 10, 8: 10,
+                         9: 10, 10: 10, 11: 10, 12: 14})
+    ws.freeze_panes = "B5"
+
+    optimal_rows   = optimal_data.get("optimal_rows", [])
+    total_cost     = optimal_data.get("total_cost", 0)
+    total_clicks   = optimal_data.get("total_clicks", 0)
+    total_impr     = optimal_data.get("total_impressions", 0)
+
+    row = 1
+    # 타이틀
+    ws.merge_cells(f"B{row}:L{row}")
+    _write_cell(ws, row, 2, f"{advertiser}  최적 효율 제안 (예산 무제한)",
+                bold=True, font_size=14, bg=COLOR_TITLE_BG, font_color=COLOR_TITLE_FG, align_h="left")
+    row += 1
+
+    # 설명 박스
+    ws.merge_cells(f"B{row}:L{row}")
+    _write_cell(ws, row, 2,
+                "선별된 전체 키워드를 우선순위별 최적 순위로 집행할 경우의 예상 성과입니다. "
+                "SA를 처음 시작하거나 최대 효율을 원하는 경우 참고 예산으로 활용하세요.",
+                font_size=10, font_color="475569", align_h="left")
+    row += 2
+
+    # KPI 요약 행
+    kpi_cols = [
+        ("예상 총 비용", f"{total_cost:,}원"),
+        ("예상 노출", f"{total_impr:,}회"),
+        ("예상 클릭", f"{total_clicks:,}회"),
+        ("키워드 수", f"{len(optimal_rows)}개"),
+    ]
+    for ci, (lbl, val) in enumerate(kpi_cols, start=2):
+        _write_cell(ws, row,     ci*2,   lbl, bold=True, bg="1F4E79", font_color="FFFFFF", font_size=9)
+        _write_cell(ws, row + 1, ci*2,   val, bold=True, bg="EFF6FF", font_size=11)
+    row += 3
+
+    # 헤더
+    headers = [
+        (2, "키워드"), (3, "카테고리"), (4, "우선순위"),
+        (5, "PC 입찰가"), (6, "MO 입찰가"),
+        (7, "PC 순위"), (8, "MO 순위"),
+        (9, "PC 노출"), (10, "MO 노출"),
+        (11, "PC 클릭"), (12, "MO 클릭"),
+    ]
+    for col, lbl in headers:
+        _write_cell(ws, row, col, lbl, bold=True, bg=COLOR_HEADER_BG)
+    row += 1
+
+    # 카테고리 순서
+    CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
+    sorted_rows = sorted(
+        optimal_rows,
+        key=lambda x: (
+            CAT_ORDER.index(x.get("category","일반 키워드"))
+            if x.get("category","일반 키워드") in CAT_ORDER else 99,
+            -(x.get("recommendation_score", 50) or 50),
+        )
+    )
+
+    cur_cat = None
+    for r in sorted_rows:
+        cat   = r.get("category", "일반 키워드")
+        tier  = r.get("tier", 2)
+        cc    = _cat_color(cat)
+        tc    = _TIER_COLOR.get(tier, "F3F3F3")
+        is_fb = r.get("is_fallback", False)
+        row_bg = "FFF9C4" if is_fb else cc
+
+        # 카테고리 구분선
+        if cat != cur_cat:
+            cur_cat = cat
+            ws.merge_cells(f"B{row}:L{row}")
+            _write_cell(ws, row, 2, f"[ {cat} ]",
+                        bold=True, bg=cc, font_color="1F4E79", align_h="left")
+            row += 1
+
+        pc_bid  = _safe_int(r.get("proposed_bid_pc", 0))
+        mo_bid  = _safe_int(r.get("proposed_bid_mo", 0))
+        pc_rank = r.get("proposed_rank_pc", "-")
+        mo_rank = r.get("proposed_rank_mo", "-")
+        pc_impr = _safe_int(r.get("pc_impressions", 0))
+        mo_impr = _safe_int(r.get("mo_impressions", 0))
+        pc_clk  = _safe_int(r.get("pc_clicks", 0))
+        mo_clk  = _safe_int(r.get("mo_clicks", 0))
+
+        kw_label = r.get("keyword", "")
+        if is_fb:
+            kw_label += "  *"
+
+        _write_cell(ws, row, 2,  kw_label,                    bg=row_bg, align_h="left")
+        _write_cell(ws, row, 3,  cat,                          bg=row_bg)
+        _write_cell(ws, row, 4,  _TIER_LABEL.get(tier, ""),   bg=tc)
+        _write_cell(ws, row, 5,  pc_bid,  num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 6,  mo_bid,  num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 7,  pc_rank,                      bg=row_bg)
+        _write_cell(ws, row, 8,  mo_rank,                      bg=row_bg)
+        _write_cell(ws, row, 9,  pc_impr, num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 10, mo_impr, num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 11, pc_clk,  num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 12, mo_clk,  num_fmt="#,##0",     bg=row_bg)
+        row += 1
+
+    # 합계
+    row += 1
+    ws.merge_cells(f"B{row}:D{row}")
+    _write_cell(ws, row, 2, "합계", bold=True, bg=COLOR_SUBTOTAL_BG)
+    _write_cell(ws, row, 9,  total_impr,  num_fmt="#,##0", bold=True, bg=COLOR_SUBTOTAL_BG)
+    _write_cell(ws, row, 11, total_clicks, num_fmt="#,##0", bold=True, bg=COLOR_SUBTOTAL_BG)
+
+    row += 2
+    ws.merge_cells(f"B{row}:L{row}")
+    _write_cell(ws, row, 2,
+                f"* 이 제안서를 전체 집행하려면 월 약 {total_cost:,}원의 예산이 필요합니다. "
+                "* 표시 키워드는 Estimate 데이터 미보유(입찰가 제안 기준).",
+                font_size=9, font_color="888888", align_h="left")

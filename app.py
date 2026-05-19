@@ -13,6 +13,12 @@ try:
 except Exception:
     pass
 
+
+def _split_keywords(text: str) -> list[str]:
+    """쉼표·줄바꿈·탭 중 어떤 구분자로 붙여넣어도 키워드 리스트로 변환."""
+    import re
+    return [k.strip() for k in re.split(r'[,\n\t]+', text or "") if k.strip()]
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(
@@ -451,12 +457,14 @@ def brand_form(idx, data={}):
             category    = st.text_input("카테고리 *",
                 value=data.get("category", ""), key=f"cat_{idx}",
                 placeholder="예) 노트북, 헤어드라이기, 로봇청소기")
-            products    = st.text_input("제품명 / 모델명 (쉼표 구분)",
-                value=", ".join(data.get("products", [])), key=f"prod_{idx}",
-                placeholder="예) 그램, 그램Pro, 그램16")
-            competitors = st.text_input("주요 경쟁사 (쉼표 구분)",
-                value=", ".join(data.get("competitors", [])), key=f"comp_{idx}",
-                placeholder="예) 삼성, 레노버, 애플")
+            products    = st.text_area("제품명 / 모델명",
+                value="\n".join(data.get("products", [])), key=f"prod_{idx}",
+                placeholder="예) 그램\n그램Pro\n그램16\n(줄바꿈·쉼표·탭 모두 가능 — 엑셀 복붙 OK)",
+                height=100)
+            competitors = st.text_area("주요 경쟁사",
+                value="\n".join(data.get("competitors", [])), key=f"comp_{idx}",
+                placeholder="예) 삼성\n레노버\n애플\n(줄바꿈·쉼표·탭 모두 가능 — 엑셀 복붙 OK)",
+                height=100)
         with c2:
             brand_budget = st.number_input(
                 "브랜드 월 예산 (원)",
@@ -478,18 +486,19 @@ def brand_form(idx, data={}):
                 help="입력 시 해당 페이지에서 키워드 자동 추출"
             )
             url_list = [u.strip() for u in brand_urls.splitlines() if u.strip()]
-            must_kws = st.text_input(
-                "필수 포함 키워드 (쉼표 구분)",
-                value=", ".join([
+            must_kws = st.text_area(
+                "필수 포함 키워드",
+                value="\n".join([
                     m.get("keyword","") if isinstance(m,dict) else str(m)
                     for m in data.get("must_keywords",[])
                 ]),
                 key=f"must_{idx}",
-                placeholder="예) LG그램, LG노트북 추천"
+                placeholder="예) LG그램\nLG노트북 추천\n그램16\n(줄바꿈·쉼표·탭 모두 가능 — 엑셀 열 복붙 OK)",
+                height=120,
             )
             must_list = [
                 {"keyword": k.strip(), "target_rank": 3, "device": "BOTH"}
-                for k in must_kws.split(",") if k.strip()
+                for k in _split_keywords(must_kws) if k.strip()
             ]
 
         # ── 캠페인 특이사항 ──────────────────────────────────────────────
@@ -553,10 +562,10 @@ def brand_form(idx, data={}):
             "brand_name":             brand_name,
             "brand_key":              brand_name.replace(" ","_").lower() or f"brand_{idx}",
             "category":               category,
-            "products":               [p.strip() for p in products.split(",") if p.strip()],
+            "products":               _split_keywords(products),
             "brand_variants":         [],
             "typo_variants":          [],
-            "competitors":            [c.strip() for c in competitors.split(",") if c.strip()],
+            "competitors":            _split_keywords(competitors),
             "celebrities":            [],
             "must_keywords":          must_list,
             "product_lines":          [],

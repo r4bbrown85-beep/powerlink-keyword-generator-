@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from modules.ai_keyword_generator import generate_ai_keyword_plan
 from modules.naver_suggest import get_naver_suggestions
 from modules.google_suggest import get_google_suggestions
-from modules.keyword_filter import filter_ad_keywords, filter_rows_by_brand_context
+from modules.keyword_filter import filter_ad_keywords, filter_rows_by_brand_context, _STANDALONE_GENERIC_NOUNS
 from modules.keyword_scorer import score_keywords
 from modules.keyword_type_classifier import classify_keyword_type
 from modules.recommendation_engine import build_recommended_keywords, calc_recommendation_score
@@ -23,8 +23,9 @@ from modules.summary_builder import build_summary_text
 from modules.excel_writer import save_proposal_excel
 from modules.naver_keyword_api import get_keyword_stats, get_related_keywords, get_related_keywords_multi
 from modules.keyword_normalizer import normalize_keyword_for_ad, normalize_keyword_for_proposal
-from modules.bid_simulator import optimize_budget, simulate_expanded, simulate_scenarios
+from modules.bid_simulator import optimize_budget, simulate_expanded, simulate_scenarios, simulate_unconstrained_optimal
 from modules.naver_stats import get_registered_keywords, get_keyword_actual_stats
+from modules.naver_estimate import get_exposure_min_bid_batch
 
 load_dotenv()
 
@@ -73,7 +74,22 @@ _DOMAIN_MISMATCH_RULES = [
     # ─ 주식·투자 ─
     ("주식투자",    ["주식", "증권", "투자", "펀드"]),
     ("코인투자",    ["코인", "가상화폐", "블록체인", "투자"]),
+    # ─ 교육·훈련 과정 (IT교육 전문 브랜드 제외) ─
+    ("양성과정",    ["교육", "훈련", "직업", "인재", "학원", "아카데미"]),
+    ("개발자양성",  ["교육", "훈련", "직업", "인재", "학원", "아카데미"]),
+    ("교육과정",    ["교육", "훈련", "직업", "인재", "학원", "아카데미", "lms"]),
+    ("부트캠프",    ["교육", "훈련", "부트캠프", "코딩"]),
+    # ─ 정부지원·창업 프로그램 ─
+    ("1인창조기업", ["창업지원", "중소기업", "소상공인", "창업"]),
+    ("창조기업",    ["창업지원", "중소기업", "소상공인"]),
+    ("사업계획서",  ["창업지원", "스타트업", "투자", "컨설팅", "창업"]),
+    ("지원사업",    ["지원사업", "정부지원", "중소기업", "창업지원"]),
+    ("사업화지원",  ["지원사업", "정부지원", "중소기업"]),
 ]
+
+
+# keyword_filter._STANDALONE_GENERIC_NOUNS를 공유 사용 (중복 정의 방지)
+_ULTRA_GENERIC_STANDALONE = _STANDALONE_GENERIC_NOUNS
 
 
 def _is_ambiguous_keyword(keyword):
@@ -108,18 +124,25 @@ def _is_domain_mismatch(keyword, advertiser_domain_text):
 
 def _is_too_generic(keyword, all_brand_norms):
     """
-    2글자 이하 순수 한글 키워드는 검색 의도가 불명확하여 제외.
-    브랜드명 포함 시 예외 (예: 'KT' 등 짧은 브랜드).
+    광고 키워드로 쓸 수 없는 초광범위 키워드 여부 확인.
+    (1) 2글자 이하 순수 한글, (2) 명시 차단 목록 단독 검색어.
+    브랜드명 포함 시 예외.
     """
     kw_no_space = keyword.replace(" ", "")
+    kw_norm = normalize_keyword_for_ad(keyword)
+
+    # 브랜드명이 포함된 키워드는 항상 허용
+    if any(b and b in kw_norm for b in all_brand_norms):
+        return False
+
+    # 명시 차단 목록 — 단독 키워드일 때만 적용
+    if kw_no_space in _ULTRA_GENERIC_STANDALONE:
+        return True
+
+    # 2글자 이하 순수 한글
     if len(kw_no_space) > 2:
         return False
-    # 순수 한글 2글자 여부 확인
     if not all('가' <= c <= '힣' for c in kw_no_space):
-        return False
-    # 브랜드명 포함 시 허용
-    kw_norm = normalize_keyword_for_ad(keyword)
-    if any(b and b in kw_norm for b in all_brand_norms):
         return False
     return True
 
@@ -739,6 +762,24 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
     cat_avg_pc = {cat: int(sum(v["pc"])/len(v["pc"])) for cat, v in cat_bid_avg.items() if v["pc"]}
     cat_avg_mo = {cat: int(sum(v["mo"])/len(v["mo"])) for cat, v in cat_bid_avg.items() if v["mo"]}
 
+    # 폴백 키워드: 노출최소입찰가 API로 실제 최소 입찰가 조회
+    _fallback_kws = [
+        row["keyword"] for row in recommended_rows
+        if selected_map.get(row["keyword"], {}).get("is_fallback", False)
+    ]
+    _api_key = os.getenv("NAVER_API_KEY", "")
+    _secret  = os.getenv("NAVER_SECRET_KEY", "")
+    _cid     = os.getenv("NAVER_CUSTOMER_ID", "")
+    exp_min_pc_map: dict = {}
+    exp_min_mo_map: dict = {}
+    if _fallback_kws and _api_key and _secret and _cid:
+        try:
+            exp_min_pc_map = get_exposure_min_bid_batch(_fallback_kws, "PC", _api_key, _secret, _cid)
+            exp_min_mo_map = get_exposure_min_bid_batch(_fallback_kws, "MOBILE", _api_key, _secret, _cid)
+            print(f"  [폴백] 노출최소입찰가 조회: PC {len(exp_min_pc_map)}개 / MO {len(exp_min_mo_map)}개")
+        except Exception as _e:
+            print(f"  [폴백] 노출최소입찰가 조회 실패 (무시): {_e}")
+
     for row in recommended_rows:
         sim = selected_map.get(row["keyword"])
         if sim:
@@ -750,22 +791,19 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
             row["not_selected"]    = False
 
             if is_fb:
-                cat = row.get("category", "일반 키워드")
-                top_bid = row.get("topOfPageBid", 0) or 0
-                cat_pc_avg = cat_avg_pc.get(cat, 300)
-                cat_mo_avg = cat_avg_mo.get(cat, 300)
-                if top_bid > 0:
-                    cat_top_bids = [r.get("topOfPageBid", 0) for r in recommended_rows
-                                    if r.get("category","") == cat
-                                    and not r.get("is_fallback", True)
-                                    and (r.get("topOfPageBid", 0) or 0) > 0]
-                    cat_avg_top = sum(cat_top_bids)/len(cat_top_bids) if cat_top_bids else top_bid
-                    scale = min(top_bid/cat_avg_top, 2.0) if cat_avg_top > 0 else 1.0
-                    fallback_pc_bid = max(70, int(cat_pc_avg * scale))
-                    fallback_mo_bid = max(70, int(cat_mo_avg * scale))
+                kw = row["keyword"]
+                top_bid    = row.get("topOfPageBid", 0) or 0
+                exp_min_pc = exp_min_pc_map.get(kw, 0) or 0
+                exp_min_mo = exp_min_mo_map.get(kw, 0) or 0
+                if exp_min_pc > 0:
+                    fallback_pc_bid = max(70, exp_min_pc)
+                    fallback_mo_bid = max(70, exp_min_mo if exp_min_mo > 0 else int(exp_min_pc * 0.7))
+                elif top_bid > 0:
+                    fallback_pc_bid = max(70, int(top_bid * 0.3))
+                    fallback_mo_bid = max(70, int(top_bid * 0.2))
                 else:
-                    fallback_pc_bid = cat_pc_avg
-                    fallback_mo_bid = cat_mo_avg
+                    fallback_pc_bid = 300
+                    fallback_mo_bid = 200
                 row["proposed_bid"]    = fallback_pc_bid
                 row["proposed_bid_pc"] = fallback_pc_bid
                 row["proposed_bid_mo"] = fallback_mo_bid
@@ -930,6 +968,13 @@ def run_single_brand(brand_profile, brand_name):
     scenario_data = simulate_scenarios(current_rows, not_sel_kw_rows,
                                        total_budget, all_options_map)
 
+    # 예산 무제한 최적 효율 제안 시뮬레이션
+    try:
+        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows)
+    except Exception as _e:
+        print(f"  [최적효율] 시뮬레이션 실패 (무시): {_e}")
+        optimal_data = None
+
     return {
         "brand_name":      brand_name,
         "brand_category":  brand_profile.get("category", ""),
@@ -940,6 +985,7 @@ def run_single_brand(brand_profile, brand_name):
         "summary":       summary,
         "standby_rows":  standby_rows,
         "scenario_data": scenario_data,
+        "optimal_data":  optimal_data,
         "total_cost":    total_cost,
     }
 
@@ -1116,7 +1162,8 @@ def save_multi_brand_excel(brand_results, filename, client_name):
     import openpyxl
     from modules.excel_writer import (
         _write_proposal_sheet, _write_expanded_sheet,
-        _write_summary_sheet, _write_all_sheet, _write_standby_sheet
+        _write_summary_sheet, _write_all_sheet, _write_standby_sheet,
+        _write_optimal_sheet,
     )
 
     wb = openpyxl.Workbook()
@@ -1153,6 +1200,11 @@ def save_multi_brand_excel(brand_results, filename, client_name):
             brand_name,
             recommended,
         )
+
+        optimal_data = result.get("optimal_data")
+        if optimal_data and optimal_data.get("optimal_rows"):
+            ws_optimal = wb.create_sheet(title=f"{short_name}_최적효율제안")
+            _write_optimal_sheet(ws_optimal, optimal_data, brand_name)
 
     wb.save(filename)
 
