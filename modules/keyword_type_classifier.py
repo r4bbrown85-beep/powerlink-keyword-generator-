@@ -24,6 +24,11 @@ def classify_keyword_type(keyword, profile):
         if b and normalize_keyword_for_ad(b) in nk:
             return "BRAND"
 
+    # 상품 — INTENT보다 먼저 검사 (e.g. "그룹웨어 가격" → SERVICE, not INTENT)
+    for p in products:
+        if p and normalize_keyword_for_ad(p) in nk:
+            return "SERVICE"
+
     # 경쟁사
     for c in competitors:
         if c and normalize_keyword_for_ad(c) in nk:
@@ -50,11 +55,6 @@ def classify_keyword_type(keyword, profile):
     for w in intent_words:
         if w in k:
             return "INTENT"
-
-    # 상품
-    for p in products:
-        if p and normalize_keyword_for_ad(p) in nk:
-            return "SERVICE"
 
     # 연관인물
     for celeb in celebrities:

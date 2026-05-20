@@ -115,7 +115,7 @@ def _get_curve(keyword: str, device: str,
     path = _cache_path(api_kw, suffix)
     cached = _load_cache(path)
     if cached is not None:
-        return cached
+        return cached  # 캐시 히트: sleep 불필요
 
     payload = {"device": device, "key": api_kw, "bids": SCAN_BIDS}
     if keywordplus:
@@ -126,6 +126,8 @@ def _get_curve(keyword: str, device: str,
         payload,
         api_key, secret, customer_id
     )
+    time.sleep(0.15)  # 실제 API 호출 후에만 rate-limit 대기
+
     if not result:
         return []
 
@@ -153,13 +155,15 @@ def _get_avg_position_bids(keyword: str, device: str, ranks: list,
     if cached is not None:
         cached_bids = {int(k): v for k, v in cached.items()}
         if all(r in cached_bids for r in ranks):
-            return cached_bids
+            return cached_bids  # 캐시 히트: sleep 불필요
 
     result = _post(
         "/estimate/average-position-bid/keyword",
         {"device": device, "items": [{"key": api_kw, "position": r} for r in ranks]},
         api_key, secret, customer_id
     )
+    time.sleep(0.15)  # 실제 API 호출 후에만 rate-limit 대기
+
     if not result:
         return {}
 
@@ -226,7 +230,6 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
 
     for device, api_device in [("PC", "PC"), ("MO", "MOBILE")]:
         curve = _get_curve(keyword, api_device, api_key, secret, customer_id)
-        time.sleep(0.15)
         if not curve:
             print(f"    [{keyword}][{device}] 커브 데이터 없음")
             continue
@@ -243,7 +246,6 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
         # API 2: rank 1 포함 전체 target_ranks 한번에 조회
         api2_bids = _get_avg_position_bids(keyword, api_device, target_ranks,
                                             api_key, secret, customer_id)
-        time.sleep(0.15)
 
         # 1위 bid: API 2와 포화점 중 큰 값 (보수적·정확)
         api2_rank1 = api2_bids.get(1, 0)

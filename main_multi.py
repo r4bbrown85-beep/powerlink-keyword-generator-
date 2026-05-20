@@ -849,14 +849,22 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
     return recommended_rows, total_cost, standby_rows, all_options_map
 
 
-def run_single_brand(brand_profile, brand_name):
-    """단일 브랜드 키워드 제안 데이터 생성."""
+def run_single_brand(brand_profile, brand_name, progress_cb=None):
+    """
+    단일 브랜드 키워드 제안 데이터 생성.
+    progress_cb: callable(step: str, pct: float) — UI 진행률 콜백 (선택)
+    """
+    def _progress(step: str, pct: float):
+        if progress_cb:
+            progress_cb(step, pct)
+
     total_budget = brand_profile.get("monthly_budget", 5_000_000)
     print(f"\n{'='*50}")
     print(f"브랜드: {brand_name}")
     print(f"{'='*50}")
 
     # 2. AI 키워드 생성
+    _progress("AI 키워드 생성 중...", 0.10)
     print("  [2] AI 키워드 생성...")
     plan                = generate_ai_keyword_plan(brand_profile)
     selected_categories = plan.get("selected_categories", [])
@@ -865,16 +873,19 @@ def run_single_brand(brand_profile, brand_name):
     print(f"  AI 키워드: {len(ai_rows)}개")
 
     # 3. 자동완성 확장
+    _progress("자동완성 키워드 확장 중...", 0.25)
     print("  [3] 자동완성 확장...")
     suggest_items = expand_with_suggest(ai_rows, brand_profile)
     suggest_items = filter_rows_by_brand_context(suggest_items, brand_profile)
 
     # 3-2. 연관키워드 확장
+    _progress("네이버 연관 키워드 수집 중...", 0.38)
     print("  [3-2] 연관키워드 확장...")
     related_items = expand_with_related_keywords(ai_rows, brand_profile)
     related_items = filter_rows_by_brand_context(related_items, brand_profile)
 
     # 4. 병합 및 필터링
+    _progress("키워드 필터링 및 분류 중...", 0.50)
     print("  [4] 병합 및 필터링...")
     rows = merge_all_rows(ai_rows, suggest_items, related_items,
                           selected_categories, brand_profile)
@@ -906,6 +917,7 @@ def run_single_brand(brand_profile, brand_name):
     print(f"  카테고리 상한 후: {len(rows)}개")
 
     # 5. 네이버 데이터 조회
+    _progress("네이버 검색 통계 조회 중...", 0.60)
     print("  [5] 네이버 데이터 조회...")
     rows = attach_naver_stats(rows)
 
@@ -936,12 +948,14 @@ def run_single_brand(brand_profile, brand_name):
         print(f"  [계정] 기등록 키워드: {already_cnt}개 / 전체 {len(rows)}개")
 
     # 6. 추천 키워드 선정
+    _progress("추천 키워드 선정 중...", 0.72)
     for row in rows:
         row["recommendation_score"] = calc_recommendation_score(row)
     recommended = sorted(rows, key=lambda x: -x.get("recommendation_score", 0))
     print(f"  추천 키워드: {len(recommended)}개")
 
     # 7. 예산 시뮬레이션
+    _progress("예산 시뮬레이션 중...", 0.83)
     print("  [7] 예산 시뮬레이션...")
     recommended, total_cost, standby_rows, all_options_map = \
         attach_budget_plan(recommended, total_budget, brand_profile=brand_profile)
@@ -951,6 +965,7 @@ def run_single_brand(brand_profile, brand_name):
     summary = build_summary_text(brand_profile, rows, recommended)
 
     # 8-2. 확장 시뮬레이션
+    _progress("확장 시나리오 계산 중...", 0.93)
     print("  [8-2] 확장 시뮬레이션...")
     current_rows  = [r for r in recommended if not r.get("not_selected", False)]
     not_sel_rows  = [r for r in recommended if r.get("not_selected", False)]

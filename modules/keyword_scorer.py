@@ -4,32 +4,40 @@ _HIGH_INTENT = [
     "문의", "신청하기", "체험", "도입", "구독",
 ]
 
+# 전환 의도가 특히 강한 단어 — 위 목록의 부분집합
+_STRONG_INTENT = frozenset([
+    "견적", "신청", "도입", "상담", "무료체험", "데모", "구매",
+])
+
 
 def score_keywords(keywords):
     """
-    키워드 리스트에 원시 점수를 부여한 뒤 배치 내 백분위로 정규화.
-    반환: [(keyword, score), ...] — score 범위 40~100
+    키워드별 절대 의도 점수 부여.
+    배치 크기나 구성에 무관하게 동일 키워드는 항상 동일 점수.
+    반환: [(keyword, score), ...] — score 범위 40~90
     """
     if not keywords:
         return []
 
-    raw = []
-    for k in keywords:
-        s = 0
-        for w in _HIGH_INTENT:
-            if w in k:
-                s += 1
-        if len(k) >= 6:
-            s += 0.5
-        raw.append(s)
-
-    mn, mx = min(raw), max(raw)
     scored = []
-    for k, s in zip(keywords, raw):
-        if mx > mn:
-            normalized = 40 + int((s - mn) / (mx - mn) * 60)
+    for k in keywords:
+        intent_count = sum(1 for w in _HIGH_INTENT if w in k)
+
+        if intent_count == 0:
+            s = 40
+        elif intent_count == 1:
+            s = 60
         else:
-            normalized = 50
-        scored.append((k, normalized))
+            s = 75
+
+        # 강한 전환 의도 단어 포함 시 보너스
+        if any(w in k for w in _STRONG_INTENT):
+            s = min(90, s + 10)
+
+        # 구체적인 키워드(6자 이상)는 전환율 경향 높음
+        if len(k) >= 6:
+            s = min(90, s + 5)
+
+        scored.append((k, s))
 
     return scored

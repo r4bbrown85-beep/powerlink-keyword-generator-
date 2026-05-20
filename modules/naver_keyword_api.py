@@ -178,38 +178,107 @@ def _fetch_keyword_stat(original_kw, api_key, secret_key, customer_id):
         return None
 
 
+def _fetch_keyword_stats_batch(original_kws, api_key, secret_key, customer_id):
+    """최대 5개 키워드를 /keywordstool 한 번 호출로 통계 조회."""
+    if not original_kws:
+        return {}
+
+    norm_map  = {normalize_keyword_for_api(kw): kw for kw in original_kws}
+    hint_str  = ",".join(norm_map.keys())
+    uri       = "/keywordstool"
+    method    = "GET"
+    timestamp = str(int(time.time() * 1000))
+    signature = generate_signature(timestamp, method, uri, secret_key)
+    headers   = {
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Timestamp":  timestamp,
+        "X-API-KEY":    api_key,
+        "X-Customer":   str(customer_id),
+        "X-Signature":  signature,
+    }
+    params = {"hintKeywords": hint_str, "showDetail": 1}
+
+    try:
+        r = requests.get(BASE_URL + uri, headers=headers, params=params, timeout=10)
+        if r.status_code != 200:
+            return {}
+
+        kw_list = r.json().get("keywordList", [])
+        result  = {}
+
+        for kw_norm, original_kw in norm_map.items():
+            item = next(
+                (i for i in kw_list
+                 if normalize_keyword_for_api(i.get("relKeyword", "")) == kw_norm),
+                None,
+            )
+            if not item:
+                continue
+
+            pc_impr      = parse_int_like(item.get("monthlyPcQcCnt", 0))
+            mo_impr      = parse_int_like(item.get("monthlyMobileQcCnt", 0))
+            pc_click     = parse_float_like(item.get("monthlyAvePcClkCnt", 0))
+            mo_click     = parse_float_like(item.get("monthlyAveMobileClkCnt", 0))
+            pc_ctr_raw   = parse_float_like(item.get("monthlyAvePcCtr", 0))
+            mo_ctr_raw   = parse_float_like(item.get("monthlyAveMobileCtr", 0))
+            total_impr   = pc_impr + mo_impr
+            total_click  = pc_click + mo_click
+            pl_raw       = item.get("plAvgDepth")
+
+            data = {
+                "pc_impr":      pc_impr,
+                "mo_impr":      mo_impr,
+                "pc_click":     pc_click,
+                "mo_click":     mo_click,
+                "pc_ctr":       round(pc_ctr_raw / 100, 6) if pc_ctr_raw > 0 else 0.0,
+                "mo_ctr":       round(mo_ctr_raw / 100, 6) if mo_ctr_raw > 0 else 0.0,
+                "pl_avg_depth": int(pl_raw) if pl_raw is not None else None,
+                "ctr":          round((total_click / total_impr) * 100, 4) if total_impr > 0 else 0.0,
+                "competition":  normalize_competition(item.get("compIdx", "")),
+            }
+            result[original_kw] = data
+
+        time.sleep(0.15)
+        return result
+    except Exception:
+        return {}
+
+
 def get_keyword_stats(keywords, api_key, secret_key, customer_id):
     result     = {}
     cache_hits = 0
-    api_calls  = 0
+    uncached   = []
 
     for original_kw in keywords:
-        # 1. 캐시 확인
         cached = _load_cache(original_kw)
         if cached is not None:
             result[original_kw] = cached
             cache_hits += 1
-            continue
-
-        # 2. API 호출
-        data = _fetch_keyword_stat(original_kw, api_key, secret_key, customer_id)
-        api_calls += 1
-
-        if data:
-            _save_cache(original_kw, data)
-            result[original_kw] = data
         else:
-            empty = {
-                "pc_impr": 0, "mo_impr": 0,
-                "pc_click": 0, "mo_click": 0,
-                "pc_ctr": 0.0, "mo_ctr": 0.0,
-                "pl_avg_depth": None,
-                "ctr": 0.0, "competition": "MID"
-            }
-            result[original_kw] = empty
+            uncached.append(original_kw)
 
-    if cache_hits > 0:
-        print(f"    keywordstool 캐시: {cache_hits}개 / API: {api_calls}개")
+    # 미캐시 키워드: 5개씩 배치로 묶어 한 번에 조회 (1/5 API 호출)
+    api_calls = 0
+    _empty = {
+        "pc_impr": 0, "mo_impr": 0,
+        "pc_click": 0.0, "mo_click": 0.0,
+        "pc_ctr": 0.0, "mo_ctr": 0.0,
+        "pl_avg_depth": None,
+        "ctr": 0.0, "competition": "MID",
+    }
+    for i in range(0, len(uncached), 5):
+        batch      = uncached[i : i + 5]
+        batch_data = _fetch_keyword_stats_batch(batch, api_key, secret_key, customer_id)
+        api_calls += 1
+        for kw in batch:
+            if kw in batch_data:
+                _save_cache(kw, batch_data[kw])
+                result[kw] = batch_data[kw]
+            else:
+                result[kw] = dict(_empty)
+
+    if cache_hits > 0 or api_calls > 0:
+        print(f"    keywordstool 캐시: {cache_hits}개 / API 배치: {api_calls}회 ({len(uncached)}개)")
 
     return result
 

@@ -6,18 +6,11 @@ _SNS_PLATFORMS = frozenset([
 
 _SNS_CATEGORY_HINTS = frozenset(["소셜미디어", "sns", "인플루언서", "social", "마케팅툴"])
 
-_NEGATIVE_INTENT_PATTERNS = [
-    "폐기", "버리는법", "처분방법", "재활용방법", "공짜", "무료로 받",
-    "주가", "주식", "채용", "취업", "공채", "입사지원", "합병",
-    "수리점", "수리센터", "수리업체", "수리기사",
-]
-
-
 def filter_rows_by_brand_context(rows: list, profile: dict) -> list:
     """
     suggest/related 확장 키워드 rows에 브랜드 컨텍스트 필터 적용.
     - SNS 플랫폼 이름 제거 (SNS 툴 브랜드가 아닌 경우)
-    - 구매 의도 없는 패턴 제거
+    - 구매 의도 없는 패턴 제거 (_NON_PURCHASE_INTENT 공유)
     - brand_identity.forbidden_fragments 매칭 키워드 제거
     """
     brand_identity  = profile.get("brand_identity", {})
@@ -42,7 +35,7 @@ def filter_rows_by_brand_context(rows: list, profile: dict) -> list:
                     break
 
         if not skip:
-            for pat in _NEGATIVE_INTENT_PATTERNS:
+            for pat in _NON_PURCHASE_INTENT:
                 if pat in kw_text:
                     skip = True
                     break

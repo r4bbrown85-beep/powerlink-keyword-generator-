@@ -716,7 +716,16 @@ if st.session_state.get("_gen_pending"):
                     {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws]
 
             status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 중... (30~60초 소요)")
-            result = run_single_brand(brand_profile, bname)
+
+            brand_base = i / total
+            brand_span = 1.0 / total
+
+            def _brand_progress(step: str, pct: float, _base=brand_base, _span=brand_span):
+                overall = _base + pct * _span
+                progress.progress(min(overall, 0.99))
+                status.info(f"[{i+1}/{total}] **{bname}** — {step}")
+
+            result = run_single_brand(brand_profile, bname, progress_cb=_brand_progress)
             brand_results.append(result)
             progress.progress((i + 1) / total)
 
