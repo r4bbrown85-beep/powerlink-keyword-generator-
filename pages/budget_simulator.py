@@ -221,6 +221,11 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+if not _IMPORT_OK:
+    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
+    st.code(_IMPORT_ERR[1])
+    st.stop()
+
 if not st.session_state.sim_result:
     _sim_btn = st.button("📊  시뮬레이션 시작", type="primary", use_container_width=True)
 else:
@@ -233,55 +238,43 @@ if _sim_btn:
     elif not sim_keywords:
         st.error("키워드를 1개 이상 입력해주세요.")
     else:
-        st.session_state._sim_pending = True
-        st.session_state._sim_client  = sim_client
-        st.session_state._sim_budget  = sim_budget
-        st.session_state._sim_kws     = sim_keywords
-        st.rerun()
+        _pb  = st.progress(0)
+        _msg = st.empty()
 
-if not _IMPORT_OK:
-    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
-    st.code(_IMPORT_ERR[1])
-    st.stop()
+        def _sim_progress(step: str, pct: float):
+            _pb.progress(min(pct, 0.99))
+            _msg.info(f"**{sim_client}** — {step}")
 
-if st.session_state.get("_sim_pending"):
-    st.session_state._sim_pending = False
-    _client = st.session_state._sim_client
-    _budget = st.session_state._sim_budget
-    _kws    = st.session_state._sim_kws
+        try:
+            _msg.info(f"**{sim_client}** — 시뮬레이션 준비 중... ({len(sim_keywords)}개 키워드)")
+            result = run_budget_simulation(
+                sim_keywords, sim_budget, sim_client, progress_cb=_sim_progress
+            )
 
-    _progress_bar = st.progress(0)
-    _status       = st.empty()
+            if result is None:
+                _pb.empty()
+                _msg.error("유효한 키워드가 없습니다.")
+            else:
+                _msg.info("엑셀 파일 생성 중...")
+                excel_bytes = save_multi_brand_excel(
+                    [result], None, sim_client, return_bytes=True
+                )
 
-    def _sim_progress(step: str, pct: float):
-        _progress_bar.progress(min(pct, 0.99))
-        _status.info(f"**{_client}** — {step}")
+                st.session_state.sim_result      = result
+                st.session_state.sim_excel_bytes = excel_bytes
 
-    try:
-        _status.info(f"**{_client}** — 시뮬레이션 준비 중... ({len(_kws)}개 키워드)")
-        result = run_budget_simulation(_kws, _budget, _client, progress_cb=_sim_progress)
+                _pb.progress(1.0)
+                n_active = len([r for r in result["recommended"] if not r.get("not_selected")])
+                _msg.success(
+                    f"시뮬레이션 완료 — 추천 키워드 {n_active}개 / "
+                    f"예상 비용 {result['total_cost']:,}원"
+                )
 
-        if result is None:
-            st.error("유효한 키워드가 없습니다.")
-        else:
-            _status.info("엑셀 파일 생성 중...")
-            excel_bytes = save_multi_brand_excel([result], None, _client, return_bytes=True)
-
-            st.session_state.sim_result      = result
-            st.session_state.sim_excel_bytes = excel_bytes
-            st.session_state.sim_filename    = f"{_client}_budget_sim.xlsx"
-
-            _progress_bar.progress(1.0)
-            _status.empty()
-
-            n_active = len([r for r in result["recommended"] if not r.get("not_selected")])
-            st.success(f"시뮬레이션 완료 — 추천 키워드 {n_active}개 / 예상 비용 {result['total_cost']:,}원")
-            st.rerun()
-
-    except Exception as e:
-        import traceback
-        st.error(f"오류: {e}")
-        st.code(traceback.format_exc())
+        except Exception as e:
+            import traceback
+            _pb.empty()
+            _msg.error(f"오류: {e}")
+            st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
 # SECTION 3 · 결과 확인
