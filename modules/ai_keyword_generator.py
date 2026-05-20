@@ -114,16 +114,18 @@ def _build_buying_business_prompt(brand, category, products, competitors,
                                    korean_str, must_str, campaign_goal,
                                    identity_stmt, not_this_brand,
                                    doc_context: str = "",
-                                   campaign_notes: str = "") -> str:
+                                   campaign_notes: str = "",
+                                   sa_strategy_memo: str = "") -> str:
     """
     매입/구매 비즈니스 전용 키워드 생성 프롬프트.
     판매자(물건을 팔고 싶은 사람)가 검색할 키워드를 생성한다.
     """
-    products_str    = ", ".join(products) if products else f"{category} 관련 품목"
-    competitors_str = ", ".join(competitors) if competitors else "동종 매입업체"
-    doc_section     = f"\n━━━ 참고 문서 내용 ━━━\n{doc_context[:1500]}\n" if doc_context else ""
-    notes_section   = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
-    goal_section    = _build_goal_guidance(campaign_goal)
+    products_str     = ", ".join(products) if products else f"{category} 관련 품목"
+    competitors_str  = ", ".join(competitors) if competitors else "동종 매입업체"
+    doc_section      = f"\n━━━ 참고 문서 내용 ━━━\n{doc_context[:1500]}\n" if doc_context else ""
+    notes_section    = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+    strategy_section = f"\n━━━ SA 전략 인사이트 (자동 분석) ━━━\n{sa_strategy_memo}\n" if sa_strategy_memo else ""
+    goal_section     = _build_goal_guidance(campaign_goal)
 
     return f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
 이 광고주는 제품을 "판매"하는 게 아니라 특정 품목을 "매입(구매)"하는 업체다.
@@ -138,7 +140,7 @@ def _build_buying_business_prompt(brand, category, products, competitors,
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것: {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
-{notes_section}{goal_section}{doc_section}
+{notes_section}{strategy_section}{goal_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
 ● 타깃: "{products_str}을 처분/판매하려는 한국 사람이 네이버에서 검색할 키워드"
@@ -346,6 +348,79 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
     return result
 
 
+def generate_sa_strategy_memo(profile: dict) -> str:
+    """
+    네이버 SA 전략 브리핑 자동 생성.
+    브랜드 정보를 분석해 키워드 생성에 참고할 전략 인사이트를 반환.
+    결과는 7일 캐시 — 같은 브랜드 반복 생성 시 재호출 없음.
+    """
+    cache_key = _get_ai_cache_key(profile) + "_strategy"
+    cached    = _load_ai_cache(cache_key)
+    if cached is not None:
+        return cached.get("memo", "")
+
+    brand          = profile.get("brand_name", "")
+    category       = profile.get("category", "")
+    products       = profile.get("products", [])
+    competitors    = profile.get("competitors", [])
+    campaign_goal  = profile.get("campaign_goal", "구매전환")
+    campaign_notes = profile.get("campaign_notes", "")
+    brand_identity = profile.get("brand_identity", {})
+    identity_stmt  = brand_identity.get("identity_statement", "")
+
+    products_str    = ", ".join(products) if products else f"{category} 관련 제품"
+    competitors_str = ", ".join(competitors) if competitors else "카테고리 내 주요 경쟁 브랜드"
+    notes_line      = f"\n캠페인 메모: {campaign_notes}" if campaign_notes else ""
+    identity_line   = f"\n브랜드 정의: {identity_stmt}" if identity_stmt else ""
+
+    prompt = f"""네이버 파워링크 검색광고 전략가로서 아래 브랜드의 키워드 전략 인사이트를 분석하라.
+이 분석은 실제 키워드 생성에 직접 활용되므로 실무적이고 구체적이어야 한다.
+
+━━━ 광고주 정보 ━━━
+브랜드: {brand}
+카테고리: {category}
+제품/모델: {products_str}
+경쟁사: {competitors_str}
+광고 목표: {campaign_goal}{identity_line}{notes_line}
+
+━━━ 분석 항목 (각 항목 2~3줄, 총 400자 이내) ━━━
+
+1. 타깃 검색 패턴
+   이 카테고리 구매자가 네이버에서 실제로 어떤 맥락과 의도로 검색하는지
+
+2. 단계별 핵심 키워드 유형
+   인지(브랜드 인지 전) → 비교탐색 → 구매 직전 단계별로 포착해야 할 검색어 패턴
+
+3. 경쟁 차별화 키워드 기회
+   경쟁사 대비 이 브랜드가 특히 강점을 어필할 수 있는 키워드 영역
+
+4. 고효율 틈새 키워드
+   일반적으로 간과되지만 이 카테고리에서 전환율 높은 구체적 키워드 유형
+
+5. 제외 권장 패턴
+   노출은 되지만 이 카테고리에서 전환이 거의 없는 키워드 유형"""
+
+    try:
+        memo = _call_llm(
+            system=(
+                "너는 10년 경력의 네이버 파워링크 검색광고 전략 컨설턴트다. "
+                "브랜드 정보를 바탕으로 실무에 바로 활용할 수 있는 "
+                "구체적인 키워드 전략 인사이트를 제공한다. "
+                "마크다운 없이 일반 텍스트로만 응답한다."
+            ),
+            user=prompt,
+            temperature=0.3,
+            max_tokens=700,
+        )
+        memo = memo.strip()
+        _save_ai_cache(cache_key, brand, {"memo": memo})
+        print(f"    [SA전략메모] 생성 완료 ({len(memo)}자)")
+        return memo
+    except Exception as e:
+        print(f"    [SA전략메모] 생성 실패 (건너뜀): {e}")
+        return ""
+
+
 def generate_ai_keyword_plan(profile):
     # 캐시 확인
     cache_key = _get_ai_cache_key(profile)
@@ -365,8 +440,9 @@ def generate_ai_keyword_plan(profile):
     general_themes = profile.get("general_keyword_themes", [])
     sales_channels = profile.get("sales_channels", [])
     campaign_goal  = profile.get("campaign_goal", "구매전환")
-    doc_context    = profile.get("doc_context", "")       # PDF/문서 추출 텍스트
-    campaign_notes = profile.get("campaign_notes", "")   # 사용자 캠페인 메모
+    doc_context      = profile.get("doc_context", "")        # PDF/문서 추출 텍스트
+    campaign_notes   = profile.get("campaign_notes", "")    # 사용자 캠페인 메모
+    sa_strategy_memo = profile.get("sa_strategy_memo", "")  # 자동 생성 SA 전략 브리핑
 
     # 브랜드 정체성 문서 (setup_profile에서 생성)
     brand_identity = profile.get("brand_identity", {})
@@ -396,7 +472,7 @@ def generate_ai_keyword_plan(profile):
         user_msg = _build_buying_business_prompt(
             brand, category, products, competitors,
             korean_str, must_str, campaign_goal,
-            identity_stmt, not_this_brand, doc_context, campaign_notes
+            identity_stmt, not_this_brand, doc_context, campaign_notes, sa_strategy_memo
         )
         content = _call_llm(
             system=(
@@ -428,9 +504,10 @@ def generate_ai_keyword_plan(profile):
         return result
 
     # ── 일반 판매 비즈니스 프롬프트 ─────────────────────────────────────────
-    doc_section   = f"\n━━━ 참고 문서 내용 (제품 카탈로그 / 마케팅 문서) ━━━\n{doc_context[:1500]}\n" if doc_context else ""
-    notes_section = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
-    goal_section  = _build_goal_guidance(campaign_goal)
+    doc_section      = f"\n━━━ 참고 문서 내용 (제품 카탈로그 / 마케팅 문서) ━━━\n{doc_context[:1500]}\n" if doc_context else ""
+    notes_section    = f"\n━━━ 캠페인 특이사항 ━━━\n{campaign_notes}\n" if campaign_notes else ""
+    strategy_section = f"\n━━━ SA 전략 인사이트 (자동 분석) ━━━\n{sa_strategy_memo}\n" if sa_strategy_memo else ""
+    goal_section     = _build_goal_guidance(campaign_goal)
 
     # 광고주 브리핑 → 소비자 구매 검색 시뮬레이션 방식
     user_msg = f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
@@ -445,7 +522,7 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것 (제외 대상): {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
-{notes_section}{goal_section}{doc_section}
+{notes_section}{strategy_section}{goal_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
 ● "{products_str}을 구매하려는 한국 소비자가 네이버에서 실제로 검색할 검색어"만 생성한다

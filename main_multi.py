@@ -24,6 +24,7 @@ from modules.excel_writer import save_proposal_excel
 from modules.naver_keyword_api import get_keyword_stats, get_related_keywords, get_related_keywords_multi
 from modules.keyword_normalizer import normalize_keyword_for_ad, normalize_keyword_for_proposal
 from modules.bid_simulator import optimize_budget, simulate_expanded, simulate_scenarios, simulate_unconstrained_optimal
+from modules.ai_keyword_generator import generate_sa_strategy_memo
 from modules.naver_stats import get_registered_keywords, get_keyword_actual_stats
 from modules.naver_estimate import get_exposure_min_bid_batch
 
@@ -863,8 +864,15 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     print(f"브랜드: {brand_name}")
     print(f"{'='*50}")
 
+    # 2-0. SA 전략 브리핑 자동 생성 (캠페인 메모와 별개로 항상 실행)
+    _progress("SA 전략 분석 중...", 0.06)
+    print("  [2-0] SA 전략 브리핑 자동 생성...")
+    sa_memo = generate_sa_strategy_memo(brand_profile)
+    if sa_memo:
+        brand_profile["sa_strategy_memo"] = sa_memo
+
     # 2. AI 키워드 생성
-    _progress("AI 키워드 생성 중...", 0.10)
+    _progress("AI 키워드 생성 중...", 0.14)
     print("  [2] AI 키워드 생성...")
     plan                = generate_ai_keyword_plan(brand_profile)
     selected_categories = plan.get("selected_categories", [])
