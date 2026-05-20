@@ -367,6 +367,14 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ─── 페이지 네비게이션 ─────────────────────────────────────────────────────────
+_nav_c1, _nav_c2 = st.columns(2, gap="small")
+with _nav_c1:
+    st.page_link("app.py", label="🤖  AI 키워드 제안서", use_container_width=True)
+with _nav_c2:
+    st.page_link("pages/budget_simulator.py", label="📊  예산 시뮬레이터", use_container_width=True)
+st.divider()
+
 # ─── 세션 초기화 ──────────────────────────────────────────────────────────────
 for key, default in [
     ("brand_results", None), ("client_name", ""),

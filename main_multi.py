@@ -1013,6 +1013,108 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     }
 
 
+def run_budget_simulation(keywords: list, budget: int, client_name: str,
+                          progress_cb=None) -> dict:
+    """
+    확정 키워드 리스트 + 예산 → 최적 순위/입찰가/예상성과 시뮬레이션.
+    AI 키워드 생성 없이 네이버 API 데이터 조회 + 예산 최적화만 실행.
+    """
+    def _progress(step: str, pct: float):
+        if progress_cb:
+            progress_cb(step, pct)
+
+    # 기본 row 구조 생성
+    rows = []
+    seen = set()
+    for kw in keywords:
+        kw = str(kw).strip()
+        if not kw:
+            continue
+        norm = normalize_keyword_for_ad(kw)
+        if norm in seen:
+            continue
+        seen.add(norm)
+        rows.append({
+            "keyword":      normalize_keyword_for_proposal(kw),
+            "category":     "일반 키워드",
+            "keyword_type": "GENERIC",
+            "score":        50,
+            "source":       "user_input",
+        })
+
+    if not rows:
+        return None
+
+    _progress("네이버 검색 통계 조회 중...", 0.15)
+    print(f"  [시뮬레이터] 키워드 {len(rows)}개 통계 조회...")
+    rows = attach_naver_stats(rows)
+
+    # 점수 및 추천 순위 계산
+    _progress("키워드 분석 중...", 0.40)
+    keywords_list = [row["keyword"] for row in rows]
+    scored     = score_keywords(keywords_list)
+    score_map  = {k: s for k, s in scored}
+    for row in rows:
+        row["score"] = score_map.get(row["keyword"], 50)
+        row["recommendation_score"] = calc_recommendation_score(row)
+
+    recommended = sorted(rows, key=lambda x: -x.get("recommendation_score", 0))
+
+    # 예산 시뮬레이션
+    _progress("예산 최적화 시뮬레이션 중...", 0.60)
+    print(f"  [시뮬레이터] 예산 {budget:,}원 최적화...")
+    recommended, total_cost, standby_rows, all_options_map = \
+        attach_budget_plan(recommended, budget)
+
+    # 확장 시나리오
+    _progress("확장 시나리오 계산 중...", 0.82)
+    current_rows = [r for r in recommended if not r.get("not_selected", False)]
+    not_sel_rows = [r for r in recommended if r.get("not_selected", False)]
+    not_sel_kw_rows = [{
+        "keyword":             row["keyword"],
+        "category":            row.get("category", ""),
+        "keyword_type":        row.get("keyword_type", "GENERIC"),
+        "competition":         row.get("competition", "MID"),
+        "monthlySearchVolume": row.get("monthlySearchVolume", 0),
+        "topOfPageBid":        row.get("topOfPageBid", 1000),
+        "pc_impr":             row.get("pc_impr", 0),
+        "mo_impr":             row.get("mo_impr", 0),
+    } for row in not_sel_rows]
+
+    scenario_data = simulate_scenarios(current_rows, not_sel_kw_rows,
+                                       budget, all_options_map)
+
+    try:
+        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows)
+    except Exception as _e:
+        print(f"  [시뮬레이터] 최적효율 계산 실패 (무시): {_e}")
+        optimal_data = None
+
+    _progress("완료", 1.0)
+
+    summary_profile = {
+        "brand_name": client_name,
+        "category": "",
+        "monthly_budget": budget,
+        "campaign_goal": "예산 최적화",
+    }
+    summary = build_summary_text(summary_profile, rows, recommended)
+
+    return {
+        "brand_name":      client_name,
+        "brand_category":  "예산 시뮬레이터",
+        "monthly_budget":  budget,
+        "rows":            rows,
+        "recommended":     recommended,
+        "category_desc":   {},
+        "summary":         summary,
+        "standby_rows":    standby_rows,
+        "scenario_data":   scenario_data,
+        "optimal_data":    optimal_data,
+        "total_cost":      total_cost,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="멀티 브랜드 SA 키워드 제안서 생성")
     parser.add_argument("--profile", "-p", default="data/client_profile.json",
