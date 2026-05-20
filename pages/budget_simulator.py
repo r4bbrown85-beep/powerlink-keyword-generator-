@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
+
+# st.set_page_config must be the FIRST Streamlit command — before st.secrets
+st.set_page_config(
+    page_title="예산 시뮬레이터 · PowerLink Planner",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 import os
 import sys
 from datetime import datetime
@@ -16,13 +25,6 @@ except Exception:
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
-
-st.set_page_config(
-    page_title="예산 시뮬레이터 · PowerLink Planner",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 st.markdown("""
 <style>
