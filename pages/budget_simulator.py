@@ -24,16 +24,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ─── import (set_page_config 이후) ────────────────────────────────────────────
-try:
-    from main_multi import run_budget_simulation, save_multi_brand_excel
-    _IMPORT_OK = True
-    _IMPORT_ERR = None
-except Exception as _e:
-    import traceback as _tb
-    _IMPORT_OK = False
-    _IMPORT_ERR = (str(_e), _tb.format_exc())
-
 st.markdown("""
 <style>
 #MainMenu, footer, .stDeployButton,
@@ -151,11 +141,6 @@ if "sim_result" not in st.session_state:
 if "sim_excel_bytes" not in st.session_state:
     st.session_state.sim_excel_bytes = None
 
-# ─── 임포트 오류 표시 ──────────────────────────────────────────────────────────
-if not _IMPORT_OK:
-    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
-    st.code(_IMPORT_ERR[1])
-    st.stop()
 
 
 def _split_keywords(text: str) -> list:
@@ -228,6 +213,7 @@ if submitted:
     else:
         with st.spinner(f"'{f_client}' 시뮬레이션 실행 중... ({len(f_keywords)}개 키워드)"):
             try:
+                from main_multi import run_budget_simulation, save_multi_brand_excel
                 result = run_budget_simulation(f_keywords, int(f_budget), f_client)
 
                 if result is None:
