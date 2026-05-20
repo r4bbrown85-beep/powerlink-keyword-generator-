@@ -13,11 +13,18 @@ try:
 except Exception:
     pass
 
-# Ensure repo root is in path (pages/ subdirectory would miss it otherwise)
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+st.set_page_config(
+    page_title="예산 시뮬레이터 · PowerLink Planner",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# ─── import (set_page_config 이후) ────────────────────────────────────────────
 try:
     from main_multi import run_budget_simulation, save_multi_brand_excel
     _IMPORT_OK = True
@@ -26,13 +33,6 @@ except Exception as _e:
     import traceback as _tb
     _IMPORT_OK = False
     _IMPORT_ERR = (str(_e), _tb.format_exc())
-
-st.set_page_config(
-    page_title="예산 시뮬레이터 · PowerLink Planner",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
 st.markdown("""
 <style>
@@ -146,11 +146,16 @@ st.markdown("""
 st.divider()
 
 # ─── 세션 초기화 ──────────────────────────────────────────────────────────────
-for key, default in [
-    ("sim_result", None), ("sim_excel_bytes", None), ("sim_filename", ""),
-]:
-    if key not in st.session_state:
-        st.session_state[key] = default
+if "sim_result" not in st.session_state:
+    st.session_state.sim_result = None
+if "sim_excel_bytes" not in st.session_state:
+    st.session_state.sim_excel_bytes = None
+
+# ─── 임포트 오류 표시 ──────────────────────────────────────────────────────────
+if not _IMPORT_OK:
+    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
+    st.code(_IMPORT_ERR[1])
+    st.stop()
 
 
 def _split_keywords(text: str) -> list:
@@ -159,7 +164,7 @@ def _split_keywords(text: str) -> list:
 
 
 # ─────────────────────────────────────────────────────────────────
-# SECTION 1 · 입력
+# SECTION 1 · 입력 (st.form으로 감싸 — 위젯 변경 시 불필요한 rerun 차단)
 # ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="pl-sec">
@@ -182,108 +187,78 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-c1, c2 = st.columns([1, 1], gap="large")
-with c1:
-    sim_client = st.text_input("광고주명 *", placeholder="예) LG전자", key="sim_client")
-    sim_budget = st.number_input(
-        "월 예산 (원) *",
-        min_value=100_000, max_value=100_000_000,
-        value=5_000_000, step=100_000, format="%d", key="sim_budget",
-    )
-with c2:
-    sim_keywords_raw = st.text_area(
-        "키워드 리스트 * (엑셀 열 복붙 가능)",
-        height=200,
-        placeholder=(
-            "예)\nLG그램\nLG 노트북 추천\n그램 가격\n노트북 추천\n"
-            "삼성 노트북 비교\n...\n\n"
-            "줄바꿈·쉼표·탭 모두 가능 — 엑셀 열 그대로 붙여넣기 OK"
-        ),
-        key="sim_kw_raw",
-    )
+with st.form("budget_sim_form", clear_on_submit=False):
+    fc1, fc2 = st.columns([1, 1], gap="large")
+    with fc1:
+        f_client = st.text_input("광고주명 *", placeholder="예) LG전자")
+        f_budget = st.number_input(
+            "월 예산 (원) *",
+            min_value=100_000, max_value=100_000_000,
+            value=5_000_000, step=100_000,
+        )
+    with fc2:
+        f_kw_raw = st.text_area(
+            "키워드 리스트 * (엑셀 열 복붙 가능)",
+            height=200,
+            placeholder=(
+                "예)\nLG그램\nLG 노트북 추천\n그램 가격\n노트북 추천\n"
+                "삼성 노트북 비교\n...\n\n"
+                "줄바꿈·쉼표·탭 모두 가능"
+            ),
+        )
 
-sim_keywords = _split_keywords(sim_keywords_raw)
-if sim_keywords:
-    st.caption(f"인식된 키워드: {len(sim_keywords)}개")
+    _has_result = st.session_state.sim_result is not None
+    _btn_label  = "🔄  재실행" if _has_result else "📊  시뮬레이션 시작"
+    _btn_type   = "secondary" if _has_result else "primary"
+    submitted   = st.form_submit_button(_btn_label, type=_btn_type, use_container_width=True)
 
 st.divider()
 
 # ─────────────────────────────────────────────────────────────────
 # SECTION 2 · 시뮬레이션 실행
 # ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="pl-sec">
-  <div class="pl-sec-num">2</div>
-  <div>
-    <div class="pl-sec-title">시뮬레이션 실행</div>
-    <div class="pl-sec-desc">키워드별 최적 순위 · 예상 노출/클릭/비용 · 확장 제안까지 자동 계산</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
+if submitted:
+    f_keywords = _split_keywords(f_kw_raw)
+    st.caption(f"인식된 키워드: {len(f_keywords)}개")
 
-if not _IMPORT_OK:
-    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
-    st.code(_IMPORT_ERR[1])
-    st.stop()
-
-if not st.session_state.sim_result:
-    _sim_btn = st.button("📊  시뮬레이션 시작", type="primary", use_container_width=True)
-else:
-    st.info("💡 키워드나 예산을 변경한 경우 아래 버튼으로 재실행하세요.")
-    _sim_btn = st.button("🔄  재실행", use_container_width=True)
-
-if _sim_btn:
-    if not sim_client.strip():
+    if not f_client.strip():
         st.error("광고주명을 입력해주세요.")
-    elif not sim_keywords:
+    elif not f_keywords:
         st.error("키워드를 1개 이상 입력해주세요.")
     else:
-        _pb  = st.progress(0)
-        _msg = st.empty()
+        with st.spinner(f"'{f_client}' 시뮬레이션 실행 중... ({len(f_keywords)}개 키워드)"):
+            try:
+                result = run_budget_simulation(f_keywords, int(f_budget), f_client)
 
-        def _sim_progress(step: str, pct: float):
-            _pb.progress(min(pct, 0.99))
-            _msg.info(f"**{sim_client}** — {step}")
+                if result is None:
+                    st.error("유효한 키워드가 없습니다. 키워드를 확인해주세요.")
+                else:
+                    excel_bytes = save_multi_brand_excel(
+                        [result], None, f_client, return_bytes=True
+                    )
+                    st.session_state.sim_result      = result
+                    st.session_state.sim_excel_bytes = excel_bytes
 
-        try:
-            _msg.info(f"**{sim_client}** — 시뮬레이션 준비 중... ({len(sim_keywords)}개 키워드)")
-            result = run_budget_simulation(
-                sim_keywords, sim_budget, sim_client, progress_cb=_sim_progress
-            )
+                    n_active = len([r for r in result["recommended"] if not r.get("not_selected")])
+                    st.success(
+                        f"시뮬레이션 완료 — 추천 키워드 {n_active}개 / "
+                        f"예상 비용 {result['total_cost']:,}원"
+                    )
 
-            if result is None:
-                _pb.empty()
-                _msg.error("유효한 키워드가 없습니다.")
-            else:
-                _msg.info("엑셀 파일 생성 중...")
-                excel_bytes = save_multi_brand_excel(
-                    [result], None, sim_client, return_bytes=True
-                )
-
-                st.session_state.sim_result      = result
-                st.session_state.sim_excel_bytes = excel_bytes
-
-                _pb.progress(1.0)
-                n_active = len([r for r in result["recommended"] if not r.get("not_selected")])
-                _msg.success(
-                    f"시뮬레이션 완료 — 추천 키워드 {n_active}개 / "
-                    f"예상 비용 {result['total_cost']:,}원"
-                )
-
-        except Exception as e:
-            import traceback
-            _pb.empty()
-            _msg.error(f"오류: {e}")
-            st.code(traceback.format_exc())
+            except Exception as e:
+                import traceback
+                st.error(f"시뮬레이션 오류: {e}")
+                with st.expander("오류 상세 (개발자용)"):
+                    st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
 # SECTION 3 · 결과 확인
 # ─────────────────────────────────────────────────────────────────
 if st.session_state.sim_result:
-    res = st.session_state.sim_result
-    st.divider()
+    try:
+        res = st.session_state.sim_result
 
-    st.markdown("""
+        st.markdown("""
 <div class="pl-sec">
   <div class="pl-sec-num">3</div>
   <div>
@@ -293,19 +268,22 @@ if st.session_state.sim_result:
 </div>
 """, unsafe_allow_html=True)
 
-    active  = [r for r in res["recommended"] if not r.get("not_selected")]
-    standby = res.get("standby_rows", [])
-    total_impr = sum(
-        (r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
-        for r in active if not r.get("is_fallback")
-    )
-    total_click = sum(
-        (r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
-        for r in active if not r.get("is_fallback")
-    )
-    budget_ratio = res["total_cost"] / res["monthly_budget"] * 100 if res["monthly_budget"] else 0
+        active  = [r for r in res["recommended"] if not r.get("not_selected")]
+        standby = res.get("standby_rows", [])
+        total_impr = sum(
+            (r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
+            for r in active if not r.get("is_fallback")
+        )
+        total_click = sum(
+            (r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
+            for r in active if not r.get("is_fallback")
+        )
+        budget_ratio = (
+            res["total_cost"] / res["monthly_budget"] * 100
+            if res.get("monthly_budget") else 0
+        )
 
-    st.markdown(f"""
+        st.markdown(f"""
 <div class="pl-kpi-grid">
   <div class="pl-kpi-card accent">
     <div class="pl-kpi-lbl">예상 월 비용</div>
@@ -330,43 +308,39 @@ if st.session_state.sim_result:
 </div>
 """, unsafe_allow_html=True)
 
-    # 키워드별 간략 결과 테이블
-    import pandas as pd
-    rows_disp = []
-    for r in active:
-        rows_disp.append({
-            "키워드":       r.get("keyword", ""),
-            "PC 순위":      r.get("proposed_rank_pc", ""),
-            "MO 순위":      r.get("proposed_rank_mo", ""),
-            "PC 입찰가":    int(r.get("proposed_bid_pc") or 0),
-            "MO 입찰가":    int(r.get("proposed_bid_mo") or 0),
-            "예상 노출":    int((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)),
-            "예상 클릭":    int((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)),
-            "예상 비용(원)": int((r.get("pc_sim_cost") or 0) + (r.get("mo_sim_cost") or 0)),
-        })
-    if rows_disp:
-        st.dataframe(
-            pd.DataFrame(rows_disp),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "키워드":       st.column_config.TextColumn("키워드", width="medium"),
-                "PC 순위":      st.column_config.TextColumn("PC 순위", width="small"),
-                "MO 순위":      st.column_config.TextColumn("MO 순위", width="small"),
-                "PC 입찰가":    st.column_config.NumberColumn("PC 입찰가", format="%d원"),
-                "MO 입찰가":    st.column_config.NumberColumn("MO 입찰가", format="%d원"),
-                "예상 노출":    st.column_config.NumberColumn("예상 노출"),
-                "예상 클릭":    st.column_config.NumberColumn("예상 클릭"),
-                "예상 비용(원)": st.column_config.NumberColumn("예상 비용", format="%d원"),
-            },
-        )
+        import pandas as pd
+        rows_disp = []
+        for r in active:
+            rows_disp.append({
+                "키워드":        r.get("keyword", ""),
+                "PC 순위":       str(r.get("proposed_rank_pc", "-")),
+                "MO 순위":       str(r.get("proposed_rank_mo", "-")),
+                "PC 입찰가":     int(r.get("proposed_bid_pc") or 0),
+                "MO 입찰가":     int(r.get("proposed_bid_mo") or 0),
+                "예상 노출":     int((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)),
+                "예상 클릭":     int((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)),
+                "예상 비용(원)": int((r.get("pc_sim_cost") or 0) + (r.get("mo_sim_cost") or 0)),
+            })
+        if rows_disp:
+            st.dataframe(
+                pd.DataFrame(rows_disp),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "키워드":        st.column_config.TextColumn("키워드", width="medium"),
+                    "PC 순위":       st.column_config.TextColumn("PC 순위", width="small"),
+                    "MO 순위":       st.column_config.TextColumn("MO 순위", width="small"),
+                    "PC 입찰가":     st.column_config.NumberColumn("PC 입찰가", format="%d원"),
+                    "MO 입찰가":     st.column_config.NumberColumn("MO 입찰가", format="%d원"),
+                    "예상 노출":     st.column_config.NumberColumn("예상 노출"),
+                    "예상 클릭":     st.column_config.NumberColumn("예상 클릭"),
+                    "예상 비용(원)": st.column_config.NumberColumn("예상 비용", format="%d원"),
+                },
+            )
 
-    st.divider()
+        st.divider()
 
-    # ─────────────────────────────────────────────────────────────────
-    # SECTION 4 · 다운로드
-    # ─────────────────────────────────────────────────────────────────
-    st.markdown("""
+        st.markdown("""
 <div class="pl-sec">
   <div class="pl-sec-num">4</div>
   <div>
@@ -376,8 +350,8 @@ if st.session_state.sim_result:
 </div>
 """, unsafe_allow_html=True)
 
-    today = datetime.now().strftime("%Y%m%d")
-    st.markdown(f"""
+        today = datetime.now().strftime("%Y%m%d")
+        st.markdown(f"""
 <div class="pl-dl-box">
   <div class="pl-dl-info">
     <div class="pl-dl-t">제안서 준비 완료</div>
@@ -387,15 +361,21 @@ if st.session_state.sim_result:
 </div>
 """, unsafe_allow_html=True)
 
-    st.download_button(
-        label="⬇  엑셀 제안서 다운로드",
-        data=st.session_state.sim_excel_bytes,
-        file_name=f"{res['brand_name']}_budget_sim_{today}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        key="dl_btn",
-    )
-    st.caption(
-        "예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. "
-        "실제 운영 성과는 광고 품질지수·예산 집행 속도에 따라 달라질 수 있습니다."
-    )
+        st.download_button(
+            label="⬇  엑셀 제안서 다운로드",
+            data=st.session_state.sim_excel_bytes,
+            file_name=f"{res['brand_name']}_budget_sim_{today}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="dl_btn",
+        )
+        st.caption(
+            "예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. "
+            "실제 운영 성과는 광고 품질지수·예산 집행 속도에 따라 달라질 수 있습니다."
+        )
+
+    except Exception as _render_err:
+        import traceback
+        st.error(f"결과 표시 오류: {_render_err}")
+        with st.expander("오류 상세"):
+            st.code(traceback.format_exc())
