@@ -115,11 +115,22 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ─── 페이지 네비게이션 ─────────────────────────────────────────────────────────
-_nav_c1, _nav_c2 = st.columns(2, gap="small")
-with _nav_c1:
-    st.page_link("app.py", label="🤖  AI 키워드 제안서", use_container_width=True)
-with _nav_c2:
-    st.page_link("pages/budget_simulator.py", label="📊  예산 시뮬레이터", use_container_width=True)
+st.markdown("""
+<div style="display:flex;gap:8px;margin-bottom:16px;">
+  <a href="/" target="_self" style="
+    flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+    padding:10px 0;border-radius:8px;font-size:14px;font-weight:600;text-decoration:none;
+    background:#F1F5F9;color:#475569;border:1px solid #E2E8F0;">
+    🤖&nbsp; AI 키워드 제안서
+  </a>
+  <a href="/budget_simulator" target="_self" style="
+    flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+    padding:10px 0;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;
+    background:#1D4ED8;color:#fff;border:none;">
+    📊&nbsp; 예산 시뮬레이터
+  </a>
+</div>
+""", unsafe_allow_html=True)
 st.divider()
 
 # ─── 세션 초기화 ──────────────────────────────────────────────────────────────
