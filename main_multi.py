@@ -1278,12 +1278,12 @@ def _write_overview_sheet(ws, brand_results, client_name):
         row += 1
 
 
-def save_multi_brand_excel(brand_results, filename, client_name):
+def save_multi_brand_excel(brand_results, filename, client_name, return_bytes=False):
     """
     멀티 브랜드 엑셀 저장.
-    브랜드별로 '제안서', '확장제안' 시트 생성.
-    save_proposal_excel을 브랜드별로 호출하되 같은 wb에 시트를 누적.
+    return_bytes=True 이면 파일 쓰기 없이 bytes 반환 (Streamlit Cloud 호환).
     """
+    import io
     import openpyxl
     from modules.excel_writer import (
         _write_proposal_sheet, _write_expanded_sheet,
@@ -1295,7 +1295,6 @@ def save_multi_brand_excel(brand_results, filename, client_name):
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
 
-    # Overview 시트 생성
     ws_overview = wb.create_sheet(title="Overview")
     _write_overview_sheet(ws_overview, brand_results, client_name)
 
@@ -1305,10 +1304,6 @@ def save_multi_brand_excel(brand_results, filename, client_name):
         short_name  = _safe[:12] if len(_safe) > 12 else _safe
         recommended = result["recommended"]
 
-        # _write_proposal_sheet는 proposed_bid, pc_sim_impressions 등 필드 필요
-        # attach_budget_plan 이후 전체 recommended 그대로 전달
-        # (not_selected 포함 - 함수 내부에서 처리)
-        # 제안서: 예산외(not_selected) 키워드 제외
         rec_proposal = [r for r in recommended if not r.get("not_selected", False)]
         ws_proposal = wb.create_sheet(title=f"{short_name}_제안서")
         _write_proposal_sheet(
@@ -1330,6 +1325,12 @@ def save_multi_brand_excel(brand_results, filename, client_name):
         if optimal_data and optimal_data.get("optimal_rows"):
             ws_optimal = wb.create_sheet(title=f"{short_name}_최적효율제안")
             _write_optimal_sheet(ws_optimal, optimal_data, brand_name)
+
+    if return_bytes:
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        return bio.read()
 
     wb.save(filename)
 

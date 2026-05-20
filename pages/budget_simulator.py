@@ -13,7 +13,19 @@ try:
 except Exception:
     pass
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Ensure repo root is in path (pages/ subdirectory would miss it otherwise)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+try:
+    from main_multi import run_budget_simulation, save_multi_brand_excel
+    _IMPORT_OK = True
+    _IMPORT_ERR = None
+except Exception as _e:
+    import traceback as _tb
+    _IMPORT_OK = False
+    _IMPORT_ERR = (str(_e), _tb.format_exc())
 
 st.set_page_config(
     page_title="예산 시뮬레이터 · PowerLink Planner",
@@ -227,6 +239,11 @@ if _sim_btn:
         st.session_state._sim_kws     = sim_keywords
         st.rerun()
 
+if not _IMPORT_OK:
+    st.error(f"모듈 임포트 오류: {_IMPORT_ERR[0]}")
+    st.code(_IMPORT_ERR[1])
+    st.stop()
+
 if st.session_state.get("_sim_pending"):
     st.session_state._sim_pending = False
     _client = st.session_state._sim_client
@@ -241,8 +258,6 @@ if st.session_state.get("_sim_pending"):
         _status.info(f"**{_client}** — {step}")
 
     try:
-        from main_multi import run_budget_simulation, save_multi_brand_excel
-
         _status.info(f"**{_client}** — 시뮬레이션 준비 중... ({len(_kws)}개 키워드)")
         result = run_budget_simulation(_kws, _budget, _client, progress_cb=_sim_progress)
 
@@ -250,27 +265,22 @@ if st.session_state.get("_sim_pending"):
             st.error("유효한 키워드가 없습니다.")
         else:
             _status.info("엑셀 파일 생성 중...")
-            ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"output/{_client}_budget_sim_{ts}.xlsx"
-            os.makedirs("output", exist_ok=True)
-            save_multi_brand_excel([result], filename, _client)
-
-            with open(filename, "rb") as f:
-                excel_bytes = f.read()
+            excel_bytes = save_multi_brand_excel([result], None, _client, return_bytes=True)
 
             st.session_state.sim_result      = result
             st.session_state.sim_excel_bytes = excel_bytes
-            st.session_state.sim_filename    = filename
+            st.session_state.sim_filename    = f"{_client}_budget_sim.xlsx"
 
             _progress_bar.progress(1.0)
             _status.empty()
 
             n_active = len([r for r in result["recommended"] if not r.get("not_selected")])
             st.success(f"시뮬레이션 완료 — 추천 키워드 {n_active}개 / 예상 비용 {result['total_cost']:,}원")
+            st.rerun()
 
     except Exception as e:
-        st.error(f"오류: {e}")
         import traceback
+        st.error(f"오류: {e}")
         st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
@@ -390,6 +400,7 @@ if st.session_state.sim_result:
         file_name=f"{res['brand_name']}_budget_sim_{today}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
+        key="dl_btn",
     )
     st.caption(
         "예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. "
