@@ -1377,8 +1377,8 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
     scenarios = []
     # 현재 제안을 첫 번째 시나리오로 추가
     scenarios.append({
-        "label":      f"현재 제안 ({int(cur_cost)//10000:,}만원)",
-        "budget":     int(cur_cost),
+        "label":      f"현재 제안 ({base_budget//10000:,}만원 예산)",
+        "budget":     int(base_budget),
         "kw_count":   len([r for r in current_rows if not r.get("not_selected")]),
         "clicks":     cur_clicks,
         "cost":       cur_cost,

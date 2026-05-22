@@ -1023,7 +1023,8 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
         if progress_cb:
             progress_cb(step, pct)
 
-    # 기본 row 구조 생성
+    # 기본 row 구조 생성 — 클라이언트명 포함 키워드는 브랜드 키워드로 분류
+    client_lower = client_name.lower().replace(" ", "")
     rows = []
     seen = set()
     for kw in keywords:
@@ -1034,10 +1035,15 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
         if norm in seen:
             continue
         seen.add(norm)
+        kw_norm_lower = kw.lower().replace(" ", "")
+        if client_lower and len(client_lower) >= 2 and client_lower in kw_norm_lower:
+            cat, kw_type = "브랜드 키워드", "BRAND"
+        else:
+            cat, kw_type = "일반 키워드", "GENERIC"
         rows.append({
             "keyword":      normalize_keyword_for_proposal(kw),
-            "category":     "일반 키워드",
-            "keyword_type": "GENERIC",
+            "category":     cat,
+            "keyword_type": kw_type,
             "score":        50,
             "source":       "user_input",
         })
@@ -1060,11 +1066,21 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
 
     recommended = sorted(rows, key=lambda x: -x.get("recommendation_score", 0))
 
-    # 예산 시뮬레이션
+    # 예산 시뮬레이션 — 시뮬레이터 전용 카테고리 설정 (max_single_ratio 완화)
+    # AI 제안서(15% 캡)와 달리 시뮬레이터는 키워드 수가 적으므로 캡을 넓혀야 예산을 제대로 활용
+    _sim_cat_config = [
+        {"name": "브랜드 키워드", "type": "brand",   "priority": 1.30,
+         "min_keywords": 0, "target_rank": 1, "max_rank": 3,
+         "max_single_ratio": 0.50, "cpc_factor": 1.10, "color": "BDD7EE"},
+        {"name": "일반 키워드",   "type": "general", "priority": 1.00,
+         "min_keywords": 0, "target_rank": 3, "max_rank": 5,
+         "max_single_ratio": 0.50, "cpc_factor": 1.00, "color": "FFF2CC"},
+    ]
     _progress("예산 최적화 시뮬레이션 중...", 0.60)
     print(f"  [시뮬레이터] 예산 {budget:,}원 최적화...")
     recommended, total_cost, standby_rows, all_options_map = \
-        attach_budget_plan(recommended, budget)
+        attach_budget_plan(recommended, budget,
+                           brand_profile={"keyword_categories": _sim_cat_config})
 
     # 확장 시나리오
     _progress("확장 시나리오 계산 중...", 0.82)
