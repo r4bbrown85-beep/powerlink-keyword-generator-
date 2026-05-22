@@ -17,6 +17,9 @@ from modules.naver_estimate import (
     get_median_bid_batch, get_exposure_min_bid_batch,
 )
 
+# 캡 적용 전 전체 순위 옵션 저장 (확장 시나리오 bid_up 분석용)
+_full_rank_opts_cache: dict = {}
+
 # ── 기본값 (profile에 keyword_categories 없을 때 fallback) ────────
 _DEFAULT_CATEGORIES = [
     {"name": "브랜드 키워드", "type": "brand",      "priority": 1.30,
@@ -433,6 +436,7 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
 
         if options:
             options.sort(key=lambda x: (-x["weighted_score"], x["rank"], x["cost"]))
+            _full_rank_opts_cache[keyword] = options[:]  # cap 적용 전 전체 순위 보관
             return _cap_options_by_budget(options, category, total_budget, cat_map)
 
     # ── Fallback: API 1 커브 기반 추정 ───────────────────────────────────────
@@ -1193,8 +1197,9 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
         pc_eff = mo_eff = 0.0
 
         # ── 우선: all_options_map 캐시 사용 (API 재호출 없음) ─────────────────
+        # _full_rank_opts_cache: cap 적용 전 전체 순위 옵션 (rank1~5) — 확장 분석에 더 정확
         if all_options_map and keyword in all_options_map:
-            opts = all_options_map[keyword]
+            opts = _full_rank_opts_cache.get(keyword) or all_options_map[keyword]
 
             # PC: 현재 순위보다 좋고(낮은 숫자) 클릭이 더 많은 최소 비용 옵션
             better_pc = sorted(

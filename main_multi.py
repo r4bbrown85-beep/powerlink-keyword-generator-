@@ -1071,10 +1071,10 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
     _sim_cat_config = [
         {"name": "브랜드 키워드", "type": "brand",   "priority": 1.30,
          "min_keywords": 0, "target_rank": 1, "max_rank": 3,
-         "max_single_ratio": 0.50, "cpc_factor": 1.10, "color": "BDD7EE"},
+         "max_single_ratio": 1.00, "cpc_factor": 1.10, "color": "BDD7EE"},
         {"name": "일반 키워드",   "type": "general", "priority": 1.00,
          "min_keywords": 0, "target_rank": 3, "max_rank": 5,
-         "max_single_ratio": 0.50, "cpc_factor": 1.00, "color": "FFF2CC"},
+         "max_single_ratio": 1.00, "cpc_factor": 1.00, "color": "FFF2CC"},
     ]
     _progress("예산 최적화 시뮬레이션 중...", 0.60)
     print(f"  [시뮬레이터] 예산 {budget:,}원 최적화...")
