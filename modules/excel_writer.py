@@ -798,9 +798,10 @@ _TIER_COLOR = {1: "FFF2CC", 2: "E8F5E9", 3: "F3F3F3"}
 
 def _write_optimal_sheet(ws, optimal_data, advertiser):
     """예산 제한 없는 최적 효율 제안 시트."""
-    _set_col_widths(ws, {1: 3, 2: 28, 3: 14, 4: 10,
-                         5: 10, 6: 10, 7: 10, 8: 10,
-                         9: 10, 10: 10, 11: 10, 12: 14})
+    for _c, _w in {1: 3, 2: 28, 3: 14, 4: 10,
+                   5: 10, 6: 10, 7: 10, 8: 10,
+                   9: 10, 10: 10, 11: 10, 12: 14}.items():
+        ws.column_dimensions[get_column_letter(_c)].width = _w
     ws.freeze_panes = "B5"
 
     optimal_rows   = optimal_data.get("optimal_rows", [])
