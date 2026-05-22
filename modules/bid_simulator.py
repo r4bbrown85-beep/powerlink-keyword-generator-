@@ -1431,11 +1431,26 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
             "add_cost":   add_cost,
         })
 
-    print(f"  확장 시나리오: 신규진입가능 {len(new_kw_rows)}개 / 입찰가개선 {len(bid_up_rows)}개")
+    # bid_up 상태 판단 (UX 메시지용)
+    _active_kws = [r for r in current_rows
+                   if not r.get("is_fallback", False)
+                   and (r.get("pc_sim_clicks", 0) or 0) + (r.get("mo_sim_clicks", 0) or 0) > 0]
+    if _active_kws and not bid_up_rows:
+        _at_rank1 = sum(
+            1 for r in _active_kws
+            if int(r.get("proposed_rank_pc", 10) or 10) <= 1
+            and int(r.get("proposed_rank_mo", 10) or 10) <= 1
+        )
+        _bid_up_status = "all_optimal" if _at_rank1 >= len(_active_kws) * 0.7 else "no_upgrade"
+    else:
+        _bid_up_status = "has_upgrades" if bid_up_rows else "no_upgrade"
+
+    print(f"  확장 시나리오: 신규진입가능 {len(new_kw_rows)}개 / 입찰가개선 {len(bid_up_rows)}개 / 상태={_bid_up_status}")
     return {
-        "bid_up_rows": bid_up_rows,
-        "new_kw_rows": new_kw_rows,
-        "scenarios":   scenarios,
+        "bid_up_rows":   bid_up_rows,
+        "new_kw_rows":   new_kw_rows,
+        "scenarios":     scenarios,
+        "bid_up_status": _bid_up_status,
     }
 
 

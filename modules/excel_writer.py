@@ -31,6 +31,19 @@ def _bd():
     return Border(left=s, right=s, top=s, bottom=s)
 
 
+def _fill_row(ws, row, col_start, col_end, bg=None, height=None):
+    """지정 범위 셀에 테두리+배경 채우기 (병합 셀 건드리지 않음)."""
+    from openpyxl.cell.cell import MergedCell
+    for col in range(col_start, col_end + 1):
+        cell = ws.cell(row=row, column=col)
+        if not isinstance(cell, MergedCell):
+            cell.border = _bd()
+            if bg:
+                cell.fill = _fill(bg)
+    if height:
+        ws.row_dimensions[row].height = height
+
+
 def _fill(hex_color):
     return PatternFill("solid", fgColor=hex_color)
 
@@ -153,12 +166,18 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
     # 전체 요약 표 (TOTAL / PC / MO)
     ws.merge_cells(f"B{row}:D{row}")
     _write_cell(ws, row, 2, "* 예상 성과", bold=True, align_h="left")
+    for _ec in [5, 6, 7]:
+        _write_cell(ws, row, _ec, "")
     ws.merge_cells(f"H{row}:{LAST_L}{row}")
     _write_cell(ws, row, 8, "(VAT 포함가)", align_h="right")
+    ws.row_dimensions[row].height = 15
     row += 1
 
     for i, h in enumerate(["구분","평균 입찰가","노출","클릭","CTR","비용","평균 순위"]):
         _write_cell(ws, row, 2+i, h, bold=True, bg=COLOR_HEADER_BG)
+    for _ec in [9, 10]:
+        _write_cell(ws, row, _ec, "", bold=True, bg=COLOR_HEADER_BG)
+    ws.row_dimensions[row].height = 15
     row += 1
 
     def agg(lst): return int(sum(lst)/len(lst)) if lst else 0
@@ -194,14 +213,20 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
         _write_cell(ws, row, 6, ctr_val(sum(clk), sum(imp)),  bg=COLOR_SUBTOTAL_BG, num_fmt="0.00%")
         _write_cell(ws, row, 7, sum(cost),                    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row, 8, agg(rnk),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0.0")
+        _write_cell(ws, row, 9,  "",                          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 10, "",                          bg=COLOR_SUBTOTAL_BG)
+        ws.row_dimensions[row].height = 15
         row += 1
     row += 1
 
     # 키워드별 상세 타이틀
     ws.merge_cells(f"B{row}:D{row}")
     _write_cell(ws, row, 2, "* 키워드별 상세 예상 성과", bold=True, align_h="left")
+    for _ec in [5, 6, 7]:
+        _write_cell(ws, row, _ec, "")
     ws.merge_cells(f"H{row}:{LAST_L}{row}")
     _write_cell(ws, row, 8, "(VAT 포함가)", align_h="right")
+    ws.row_dimensions[row].height = 15
     row += 1
 
     # ── 카테고리별 키워드 출력 ─────────────────────────────
@@ -296,6 +321,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
                 _write_cell(ws, row, 8, _v(pc_cost),               bg=bg, num_fmt="#,##0")
                 _write_cell(ws, row, 9, _v(pc_rank, is_rank=True), bg=bg, num_fmt="#,##0")
                 _write_cell(ws, row, 10, note if not show_mo else "", bg=bg)
+                ws.row_dimensions[row].height = 15
                 row += 1
 
             if show_mo:
@@ -308,6 +334,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
                 _write_cell(ws, row, 8, _v(mo_cost),               bg=bg, num_fmt="#,##0")
                 _write_cell(ws, row, 9, _v(mo_rank, is_rank=True), bg=bg, num_fmt="#,##0")
                 _write_cell(ws, row, 10, note,                     bg=bg)
+                ws.row_dimensions[row].height = 15
                 row += 1
 
             # keyword/category 열을 PC+MO 행에 걸쳐 병합 (둘 다 있을 때)
@@ -352,15 +379,27 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
 
     ws.merge_cells(f"B{row}:C{row}")
     _write_cell(ws, row, 2, "PC 캠페인 예산", bold=True, bg="E3F2FD", align_h="left")
+    _write_cell(ws, row, 4, "",               bg="E3F2FD")
     _write_cell(ws, row, 5, total_pc_budget,  bold=True, bg="E3F2FD", num_fmt="#,##0")
+    for _c in [6, 7, 8, 9, 10]:
+        _write_cell(ws, row, _c, "", bg="E3F2FD")
+    ws.row_dimensions[row].height = 15
     row += 1
     ws.merge_cells(f"B{row}:C{row}")
     _write_cell(ws, row, 2, "MO 캠페인 예산", bold=True, bg="E8F5E9", align_h="left")
+    _write_cell(ws, row, 4, "",               bg="E8F5E9")
     _write_cell(ws, row, 5, total_mo_budget,  bold=True, bg="E8F5E9", num_fmt="#,##0")
+    for _c in [6, 7, 8, 9, 10]:
+        _write_cell(ws, row, _c, "", bg="E8F5E9")
+    ws.row_dimensions[row].height = 15
     row += 1
     ws.merge_cells(f"B{row}:C{row}")
-    _write_cell(ws, row, 2, "합계",            bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-    _write_cell(ws, row, 5, total_budget_sum,  bold=True, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+    _write_cell(ws, row, 2, "합계",           bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
+    _write_cell(ws, row, 4, "",               bg=COLOR_SUBTOTAL_BG)
+    _write_cell(ws, row, 5, total_budget_sum, bold=True, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+    for _c in [6, 7, 8, 9, 10]:
+        _write_cell(ws, row, _c, "", bg=COLOR_SUBTOTAL_BG)
+    ws.row_dimensions[row].height = 15
     row += 2
 
     ws.merge_cells(f"B{row}:{LAST_L}{row}")
@@ -604,9 +643,10 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
     for col, w in {1:3, 2:32, 3:12, 4:10, 5:10, 6:9, 7:9, 8:9, 9:9, 10:8, 11:8, 12:10, 13:10}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
-    bid_up_rows = scenario_data.get("bid_up_rows", [])
-    new_kw_rows = scenario_data.get("new_kw_rows", [])
-    scenarios   = scenario_data.get("scenarios", [])
+    bid_up_rows  = scenario_data.get("bid_up_rows", [])
+    new_kw_rows  = scenario_data.get("new_kw_rows", [])
+    scenarios    = scenario_data.get("scenarios", [])
+    bid_up_status = scenario_data.get("bid_up_status", "no_upgrade")
 
     row = 1
 
@@ -621,7 +661,10 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
     _write_cell(ws, row, 2,
                 "현재 예산 기준 제안과 예산 확대 시 추가 효과를 시나리오별로 비교합니다.",
                 font_size=9, font_color="595959", italic=True, align_h="left")
+    ws.row_dimensions[row].height = 14
     row += 2
+    # freeze_panes는 시트 상단 고정 (타이틀 2행 + 공백 1행 아래부터 스크롤)
+    ws.freeze_panes = f"B{row}"
 
     # ══════════════════════════════════════════════
     # 섹션 1: 예산 시나리오 비교
@@ -650,6 +693,7 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
         _write_cell(ws, row, 7, sc["add_kws"] if i > 0 else "-",    bg=bg)
         _write_cell(ws, row, 8, sc["add_clicks"] if i > 0 else "-", bg=bg, num_fmt="#,##0")
         _write_cell(ws, row, 9, click_rate,        bg=bg, bold=(i>0))
+        ws.row_dimensions[row].height = 16
         row += 1
     row += 2
 
@@ -763,7 +807,14 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
 
     if not bid_up_rows:
         ws.merge_cells(f"B{row}:J{row}")
-        _write_cell(ws, row, 2, "입찰가 상향 추천 키워드가 없습니다.", font_color="888888", align_h="left")
+        if bid_up_status == "all_optimal":
+            _write_cell(ws, row, 2,
+                        "✅ 현재 운영 키워드가 모두 최적 순위(1위)에 도달해 있습니다. "
+                        "예산 확장 시 SECTION 2의 신규 키워드 진입을 통해 추가 트래픽을 확보하세요.",
+                        font_color="1F7F3F", align_h="left", font_size=10)
+        else:
+            _write_cell(ws, row, 2, "입찰가 상향 추천 키워드가 없습니다.", font_color="888888", align_h="left")
+        ws.row_dimensions[row].height = 16
         row += 2
     else:
         # 헤더
@@ -775,7 +826,6 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
 
         for kw_row in sorted(bid_up_rows, key=lambda x: x.get("category","")):
             cat = kw_row.get("category","")
-            cc  = _cat_color(cat)
             improved = kw_row.get("rank_pc", 5) < (kw_row.get("cur_pc_rank") or 5)
             bg = "E8F5E9" if improved else None
             _write_cell(ws, row, 2, kw_row.get("keyword",""),         bg=bg, align_h="left")
@@ -788,6 +838,7 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
             _write_cell(ws, row, 9, kw_row.get("mo_bid", 0),          bg=bg, num_fmt="#,##0", bold=True)
             _write_cell(ws, row, 10, kw_row.get("rank_pc", "-"),      bg=bg, bold=improved)
             _write_cell(ws, row, 11, kw_row.get("rank_mo", "-"),      bg=bg, bold=improved)
+            ws.row_dimensions[row].height = 15
             row += 1
 
 
