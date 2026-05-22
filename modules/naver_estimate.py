@@ -247,9 +247,11 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
         api2_bids = _get_avg_position_bids(keyword, api_device, target_ranks,
                                             api_key, secret, customer_id)
 
-        # 1위 bid: API 2와 포화점 중 큰 값 (보수적·정확)
+        # 1위 bid: API 2 우선, 없을 때만 포화점 사용
+        # max(sat_bid, api2) 방식은 keywordplus 커브의 포화점이 실제 rank1 bid보다
+        # 높은 경우 성과를 과대추정하는 문제 발생 (MO 클릭 2배 과대계산 사례 확인)
         api2_rank1 = api2_bids.get(1, 0)
-        rank1_bid  = max(sat_bid, api2_rank1) if api2_rank1 > 0 else sat_bid
+        rank1_bid  = api2_rank1 if api2_rank1 > 0 else sat_bid
 
         # rank별 확정 bid
         rank_bids: dict[int, int] = {}
