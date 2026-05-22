@@ -321,14 +321,17 @@ def get_rank_based_estimates_cached(keyword: str, api_key: str, secret: str, cus
                                      target_ranks: list = None,
                                      kt_pc_impr: int = None, kt_mo_impr: int = None,
                                      cache_days: int = CACHE_DAYS) -> dict:
-    """순위별 Estimate 결과 (결과 캐시 포함)."""
-    path = _cache_path(_normalize(keyword), "rank_estimates")
+    """순위별 Estimate 결과 (결과 캐시 포함).
+    cache key suffix _v2: rank1_bid 산출 로직 수정(api2 우선) 반영.
+    """
+    path = _cache_path(_normalize(keyword), "rank_estimates_v2")
     cached = _load_cache(path, cache_days)
     if cached is not None:
         return cached
     data = get_rank_based_estimates(keyword, api_key, secret, customer_id,
                                      target_ranks, kt_pc_impr, kt_mo_impr)
-    _save_cache(path, data)
+    if data:
+        _save_cache(path, data)
     return data
 
 
