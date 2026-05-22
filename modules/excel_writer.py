@@ -643,10 +643,12 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
     for col, w in {1:3, 2:32, 3:12, 4:10, 5:10, 6:9, 7:9, 8:9, 9:9, 10:8, 11:8, 12:10, 13:10}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
-    bid_up_rows  = scenario_data.get("bid_up_rows", [])
-    new_kw_rows  = scenario_data.get("new_kw_rows", [])
-    scenarios    = scenario_data.get("scenarios", [])
-    bid_up_status = scenario_data.get("bid_up_status", "no_upgrade")
+    bid_up_rows       = scenario_data.get("bid_up_rows", [])
+    new_kw_rows       = scenario_data.get("new_kw_rows", [])
+    scenarios         = scenario_data.get("scenarios", [])
+    bid_up_status     = scenario_data.get("bid_up_status", "no_upgrade")
+    all_kws_included  = scenario_data.get("all_kws_included", False)
+    current_kw_count  = scenario_data.get("current_kw_count", 0)
 
     row = 1
 
@@ -682,9 +684,15 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
     row += 1
 
     base_clicks = scenarios[0]["clicks"] if scenarios else 1
+    all_zero_expansion = all(sc.get("add_clicks", 0) == 0 for sc in scenarios[1:]) if len(scenarios) > 1 else True
     for i, sc in enumerate(scenarios):
         bg = "E8F5E9" if i == 0 else ("FFF9C4" if i == 1 else "FFF3E0")
-        click_rate = f"+{(sc['clicks']/base_clicks - 1)*100:.0f}%" if i > 0 else "기준"
+        if i == 0:
+            click_rate = "기준"
+        elif all_zero_expansion and all_kws_included:
+            click_rate = "키워드 추가 필요"
+        else:
+            click_rate = f"+{(sc['clicks']/base_clicks - 1)*100:.0f}%"
         _write_cell(ws, row, 2, sc["label"],       bg=bg, align_h="left", bold=(i==0))
         _write_cell(ws, row, 3, sc["budget"],      bg=bg, num_fmt="#,##0")
         _write_cell(ws, row, 4, sc["kw_count"],    bg=bg, num_fmt="#,##0")
@@ -695,7 +703,16 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
         _write_cell(ws, row, 9, click_rate,        bg=bg, bold=(i>0))
         ws.row_dimensions[row].height = 16
         row += 1
-    row += 2
+    # 예산 여유 있지만 추가 키워드 없는 경우 안내
+    if all_zero_expansion and all_kws_included:
+        ws.merge_cells(f"B{row}:I{row}")
+        _write_cell(ws, row, 2,
+                    f"ℹ️  현재 입력된 {current_kw_count}개 키워드가 모두 예산 내에서 운영 중입니다. "
+                    "예산 확대 효과를 보려면 키워드를 추가로 입력하세요.",
+                    font_color="1565C0", align_h="left", font_size=9, italic=True)
+        ws.row_dimensions[row].height = 14
+        row += 1
+    row += 1
 
     # ══════════════════════════════════════════════
     # 섹션 2: 신규 진입 가능 키워드
@@ -715,7 +732,14 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
 
     if not new_kw_rows:
         ws.merge_cells(f"B{row}:J{row}")
-        _write_cell(ws, row, 2, "신규 진입 가능 키워드가 없습니다.", font_color="888888", align_h="left")
+        if all_kws_included:
+            _write_cell(ws, row, 2,
+                        f"✅  입력된 {current_kw_count}개 키워드가 모두 현재 예산으로 운영되고 있습니다. "
+                        "추가 키워드를 입력하면 이 섹션에 진입 후보가 표시됩니다.",
+                        font_color="1F7F3F", align_h="left")
+        else:
+            _write_cell(ws, row, 2, "신규 진입 가능 키워드가 없습니다.", font_color="888888", align_h="left")
+        ws.row_dimensions[row].height = 16
         row += 2
     else:
         # 헤더

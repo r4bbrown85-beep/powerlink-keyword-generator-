@@ -441,7 +441,7 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
 
     # ── Fallback: API 1 커브 기반 추정 ───────────────────────────────────────
     bid_candidates   = _build_bid_candidates(keyword_row, cat_map)
-    estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id)
+    estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id, keywordplus=False)
 
     if not estimate_results or all(est["clicks"] == 0 for est in estimate_results):
         return _build_fallback_options(keyword_row, total_budget, cat_map,
@@ -1081,7 +1081,7 @@ def _get_best_options_for_kw(row, cat_map, target_rank_override=None):
 
     api_key, secret, customer_id = _get_api_keys()
     bid_candidates   = _build_bid_candidates(row, cat_map)
-    estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id)
+    estimate_results = get_estimate_performance(keyword, bid_candidates, api_key, secret, customer_id, keywordplus=False)
 
     if not estimate_results or all(e["clicks"] == 0 for e in estimate_results):
         return None
@@ -1249,7 +1249,8 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
 
         # ── Fallback: API 1 커브 기반 (all_options_map 없는 경우) ───────────
         full_estimates = get_estimate_performance(keyword, SCAN_BIDS,
-                                                  _sim_api_key, _sim_secret, _sim_cid)
+                                                  _sim_api_key, _sim_secret, _sim_cid,
+                                                  keywordplus=False)
         if not full_estimates:
             continue
         rank_map_full = _estimate_rank_from_estimate_results(full_estimates)
@@ -1431,6 +1432,9 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
             "add_cost":   add_cost,
         })
 
+    # 모든 키워드가 예산 내 포함 여부 (not_selected_rows가 비어있으면 True)
+    _all_kws_included = (len(not_selected_rows) == 0)
+
     # bid_up 상태 판단 (UX 메시지용)
     _active_kws = [r for r in current_rows
                    if not r.get("is_fallback", False)
@@ -1445,12 +1449,14 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
     else:
         _bid_up_status = "has_upgrades" if bid_up_rows else "no_upgrade"
 
-    print(f"  확장 시나리오: 신규진입가능 {len(new_kw_rows)}개 / 입찰가개선 {len(bid_up_rows)}개 / 상태={_bid_up_status}")
+    print(f"  확장 시나리오: 신규진입가능 {len(new_kw_rows)}개 / 입찰가개선 {len(bid_up_rows)}개 / 상태={_bid_up_status} / 전체포함={_all_kws_included}")
     return {
-        "bid_up_rows":   bid_up_rows,
-        "new_kw_rows":   new_kw_rows,
-        "scenarios":     scenarios,
-        "bid_up_status": _bid_up_status,
+        "bid_up_rows":        bid_up_rows,
+        "new_kw_rows":        new_kw_rows,
+        "scenarios":          scenarios,
+        "bid_up_status":      _bid_up_status,
+        "all_kws_included":   _all_kws_included,
+        "current_kw_count":   len([r for r in current_rows if not r.get("not_selected")]),
     }
 
 

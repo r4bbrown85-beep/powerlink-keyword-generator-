@@ -229,7 +229,9 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
     results = {"PC": {}, "MO": {}}
 
     for device, api_device in [("PC", "PC"), ("MO", "MOBILE")]:
-        curve = _get_curve(keyword, api_device, api_key, secret, customer_id)
+        # keywordplus=False: 네이버 키워드 도구와 동일한 기준 (정확검색 기준)
+        # keywordplus=True는 확장검색 포함으로 MO 클릭을 2배 과대추정하는 문제 확인
+        curve = _get_curve(keyword, api_device, api_key, secret, customer_id, keywordplus=False)
         if not curve:
             print(f"    [{keyword}][{device}] 커브 데이터 없음")
             continue
