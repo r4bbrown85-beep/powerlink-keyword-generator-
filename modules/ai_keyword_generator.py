@@ -43,6 +43,47 @@ def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int 
         )
         return resp.choices[0].message.content
 
+
+def _call_llm_with_web_search(system: str, user: str, max_tokens: int = 2000) -> str:
+    """Claude API + web_search_20250305 도구로 실시간 웹 검색 후 응답 생성.
+    ANTHROPIC_API_KEY 없으면 일반 _call_llm으로 폴백."""
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    if not anthropic_key:
+        return _call_llm(system, user, max_tokens=max_tokens)
+
+    import anthropic as _anthropic
+    c = _anthropic.Anthropic(api_key=anthropic_key)
+    messages = [{"role": "user", "content": user}]
+    last_resp = None
+
+    for _ in range(10):
+        last_resp = c.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=max_tokens,
+            system=system,
+            messages=messages,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            timeout=120,
+        )
+
+        if last_resp.stop_reason == "end_turn":
+            return "".join(b.text for b in last_resp.content if hasattr(b, "text"))
+
+        if last_resp.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": last_resp.content})
+            tool_results = [
+                {"type": "tool_result", "tool_use_id": b.id, "content": ""}
+                for b in last_resp.content if b.type == "tool_use"
+            ]
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            break
+
+    if last_resp:
+        return "".join(b.text for b in last_resp.content if hasattr(b, "text"))
+    return ""
+
+
 # ── 매입/구매 비즈니스 감지 ─────────────────────────────────────────────────
 _BUYING_KEYWORDS = frozenset([
     "매입", "구매대행", "중고매입", "매각", "회수", "처분", "수거",
@@ -373,44 +414,53 @@ def generate_sa_strategy_memo(profile: dict) -> str:
     notes_line      = f"\n캠페인 메모: {campaign_notes}" if campaign_notes else ""
     identity_line   = f"\n브랜드 정의: {identity_stmt}" if identity_stmt else ""
 
-    prompt = f"""네이버 파워링크 검색광고 전략가로서 아래 브랜드의 키워드 전략 인사이트를 분석하라.
-이 분석은 실제 키워드 생성에 직접 활용되므로 실무적이고 구체적이어야 한다.
+    prompt = f"""당신은 네이버 파워링크 검색광고 전략 컨설턴트입니다.
+아래 광고주의 캠페인 제안서 작성을 위해 웹 검색으로 실제 정보를 수집한 뒤, 키워드 전략 인사이트를 도출해주세요.
 
 ━━━ 광고주 정보 ━━━
 브랜드: {brand}
 카테고리: {category}
-제품/모델: {products_str}
+제품/서비스: {products_str}
 경쟁사: {competitors_str}
 광고 목표: {campaign_goal}{identity_line}{notes_line}
 
-━━━ 분석 항목 (각 항목 2~3줄, 총 400자 이내) ━━━
+━━━ 웹 검색 과제 ━━━
+다음 항목들을 웹에서 검색해 실제 최신 정보를 수집하세요:
+1. "{brand}"의 주요 서비스/제품 특징, 요금제, 가입 조건
+2. "{brand}"의 주요 경쟁사({competitors_str})와의 차별점
+3. "{category}" 분야에서 잠재 고객이 네이버에서 검색할 법한 키워드 패턴
+4. "{brand}" 관련 최근 이슈, 프로모션, 타깃 고객군
 
-1. 타깃 검색 패턴
-   이 카테고리 구매자가 네이버에서 실제로 어떤 맥락과 의도로 검색하는지
+━━━ 분석 항목 (수집한 정보 기반, 총 600자 이내) ━━━
 
-2. 단계별 핵심 키워드 유형
-   인지(브랜드 인지 전) → 비교탐색 → 구매 직전 단계별로 포착해야 할 검색어 패턴
+1. 브랜드 현황 요약
+   웹 검색으로 파악한 {brand}의 핵심 서비스/특징/포지셔닝
 
-3. 경쟁 차별화 키워드 기회
-   경쟁사 대비 이 브랜드가 특히 강점을 어필할 수 있는 키워드 영역
+2. 타깃 검색 패턴
+   이 카테고리 잠재 고객이 네이버에서 실제로 검색할 키워드 유형과 의도
 
-4. 고효율 틈새 키워드
+3. 단계별 핵심 키워드 유형
+   인지 → 비교탐색 → 구매/가입 직전 단계별 검색어 패턴
+
+4. 경쟁 차별화 키워드 기회
+   경쟁사({competitors_str}) 대비 {brand}가 강점 어필 가능한 키워드 영역
+
+5. 고효율 틈새 키워드
    일반적으로 간과되지만 이 카테고리에서 전환율 높은 구체적 키워드 유형
 
-5. 제외 권장 패턴
+6. 제외 권장 패턴
    노출은 되지만 이 카테고리에서 전환이 거의 없는 키워드 유형"""
 
     try:
-        memo = _call_llm(
+        memo = _call_llm_with_web_search(
             system=(
-                "너는 10년 경력의 네이버 파워링크 검색광고 전략 컨설턴트다. "
-                "브랜드 정보를 바탕으로 실무에 바로 활용할 수 있는 "
-                "구체적인 키워드 전략 인사이트를 제공한다. "
-                "마크다운 없이 일반 텍스트로만 응답한다."
+                "당신은 10년 경력의 네이버 파워링크 검색광고 전략 컨설턴트입니다. "
+                "웹 검색 도구를 적극 활용해 브랜드의 실제 최신 정보를 수집하고, "
+                "그 정보를 바탕으로 실무에 바로 활용할 수 있는 구체적인 키워드 전략 인사이트를 제공합니다. "
+                "마크다운 없이 일반 텍스트로만 응답합니다."
             ),
             user=prompt,
-            temperature=0.3,
-            max_tokens=700,
+            max_tokens=2000,
         )
         memo = memo.strip()
         _save_ai_cache(cache_key, brand, {"memo": memo})
