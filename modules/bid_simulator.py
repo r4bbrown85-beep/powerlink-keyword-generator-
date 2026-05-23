@@ -20,6 +20,11 @@ from modules.naver_estimate import (
 # 캡 적용 전 전체 순위 옵션 저장 (확장 시나리오 bid_up 분석용)
 _full_rank_opts_cache: dict = {}
 
+# 예산 허용 초과 비율: 입력 예산의 이 배수까지 지출 허용
+# 순위별 비용이 계단식이므로 다음 순위 비용이 약간 초과해도 허용
+# 예: 1.10 → 1000만원 예산이면 최대 1100만원까지 허용
+BUDGET_OVERAGE_RATIO = 1.10
+
 # ── 기본값 (profile에 keyword_categories 없을 때 fallback) ────────
 _DEFAULT_CATEGORIES = [
     {"name": "브랜드 키워드", "type": "brand",      "priority": 1.30,
@@ -598,11 +603,13 @@ def _upgrade_selected_with_budget(records, budget_left, selected_map):
 
 
 def _apply_budget_cap(selected_map, all_records, total_budget):
+    # BUDGET_OVERAGE_RATIO(10%) 이내 초과는 허용 — 순위 계단 비용 특성상 약간 초과가 자연스러움
+    hard_cap = total_budget * BUDGET_OVERAGE_RATIO
     total_cost = sum(_real_cost(v) for v in selected_map.values())
-    if total_cost <= total_budget:
+    if total_cost <= hard_cap:
         return
     record_map = {item["keyword"]: item for item in all_records}
-    while total_cost > total_budget:
+    while total_cost > hard_cap:
         candidates = []
         for keyword, current in selected_map.items():
             item = record_map.get(keyword)
@@ -628,12 +635,12 @@ def _apply_budget_cap(selected_map, all_records, total_budget):
         candidates.sort(key=lambda x: (x["penalty"], -x["save_cost"]))
         selected_map[candidates[0]["keyword"]] = candidates[0]["lower"]
         total_cost = sum(_real_cost(v) for v in selected_map.values())
-    if total_cost > total_budget:
+    if total_cost > hard_cap:
         for keyword, _ in sorted(
             selected_map.items(),
             key=lambda kv: (kv[1].get("weighted_score", 0), -kv[1]["cost"])
         ):
-            if total_cost <= total_budget:
+            if total_cost <= hard_cap:
                 break
             total_cost -= _real_cost(selected_map.pop(keyword))
 
@@ -881,8 +888,8 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         no_cap_selected = [r for r in all_records
                            if r["keyword"] in selected_map
                            and cat_map.get(r["category"], {}).get("max_budget_ratio") is None]
-        # 예산 100%까지 적극적으로 순위 업그레이드
-        upgrade_target = min(total_budget * 1.00 - accumulated, budget_remaining)
+        # BUDGET_OVERAGE_RATIO(110%)까지 적극적으로 순위 업그레이드 허용
+        upgrade_target = min(total_budget * BUDGET_OVERAGE_RATIO - accumulated, budget_remaining)
         if upgrade_target > 0:
             _upgrade_selected_with_budget(no_cap_selected, upgrade_target, selected_map)
         accumulated = sum(_real_cost(v) for v in selected_map.values())
@@ -905,7 +912,8 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                 continue
             cur_cost = _real_cost(current)
             cur_rank  = current.get("rank", 5)
-            remaining_now = total_budget - sum(_real_cost(v) for v in selected_map.values())
+            # BUDGET_OVERAGE_RATIO 기준 잔여 예산 (110% 한도까지 허용)
+            remaining_now = total_budget * BUDGET_OVERAGE_RATIO - sum(_real_cost(v) for v in selected_map.values())
             if remaining_now <= 0:
                 break
             # 현재보다 높은 순위(낮은 rank 번호)이고, 비용 상한 내이며, 잔여 예산으로 커버되는 옵션
