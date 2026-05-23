@@ -561,15 +561,20 @@ if _page == "simulator":
 
             rows_disp = []
             for r in active:
+                pc_bid = int(r.get("proposed_bid_pc") or 0)
+                mo_bid = int(r.get("proposed_bid_mo") or 0)
+                impr   = int((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0))
+                clk    = int((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0))
+                cost   = int((r.get("pc_sim_cost") or 0) + (r.get("mo_sim_cost") or 0))
                 rows_disp.append({
-                    "키워드":        r.get("keyword", ""),
-                    "PC 순위":       str(r.get("proposed_rank_pc", "-")),
-                    "MO 순위":       str(r.get("proposed_rank_mo", "-")),
-                    "PC 입찰가":     int(r.get("proposed_bid_pc") or 0),
-                    "MO 입찰가":     int(r.get("proposed_bid_mo") or 0),
-                    "예상 노출":     int((r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)),
-                    "예상 클릭":     int((r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)),
-                    "예상 비용(원)": int((r.get("pc_sim_cost") or 0) + (r.get("mo_sim_cost") or 0)),
+                    "키워드":    r.get("keyword", ""),
+                    "PC 순위":   str(r.get("proposed_rank_pc", "-")),
+                    "MO 순위":   str(r.get("proposed_rank_mo", "-")),
+                    "PC 입찰가": f"{pc_bid:,}원",
+                    "MO 입찰가": f"{mo_bid:,}원",
+                    "예상 노출": f"{impr:,}",
+                    "예상 클릭": f"{clk:,}",
+                    "예상 비용": f"{cost:,}원",
                 })
             if rows_disp:
                 st.dataframe(
@@ -577,14 +582,14 @@ if _page == "simulator":
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "키워드":        st.column_config.TextColumn("키워드", width="medium"),
-                        "PC 순위":       st.column_config.TextColumn("PC 순위", width="small"),
-                        "MO 순위":       st.column_config.TextColumn("MO 순위", width="small"),
-                        "PC 입찰가":     st.column_config.NumberColumn("PC 입찰가", format="%d원"),
-                        "MO 입찰가":     st.column_config.NumberColumn("MO 입찰가", format="%d원"),
-                        "예상 노출":     st.column_config.NumberColumn("예상 노출"),
-                        "예상 클릭":     st.column_config.NumberColumn("예상 클릭"),
-                        "예상 비용(원)": st.column_config.NumberColumn("예상 비용", format="%d원"),
+                        "키워드":    st.column_config.TextColumn("키워드", width="medium"),
+                        "PC 순위":   st.column_config.TextColumn("PC 순위", width="small"),
+                        "MO 순위":   st.column_config.TextColumn("MO 순위", width="small"),
+                        "PC 입찰가": st.column_config.TextColumn("PC 입찰가"),
+                        "MO 입찰가": st.column_config.TextColumn("MO 입찰가"),
+                        "예상 노출": st.column_config.TextColumn("예상 노출"),
+                        "예상 클릭": st.column_config.TextColumn("예상 클릭"),
+                        "예상 비용": st.column_config.TextColumn("예상 비용"),
                     },
                 )
 

@@ -1182,91 +1182,90 @@ def _write_overview_sheet(ws, brand_results, client_name):
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
+    def _bd():
+        s = Side(style="thin")
+        return Border(left=s, right=s, top=s, bottom=s)
+
+    def _cell(row, col, value, bold=False, bg=None, fg="000000", align_h="center", font_size=10):
+        c = ws.cell(row=row, column=col, value=value)
+        c.font = Font(bold=bold, size=font_size, color=fg)
+        c.alignment = Alignment(horizontal=align_h, vertical="center")
+        c.border = _bd()
+        if bg:
+            c.fill = PatternFill("solid", fgColor=bg)
+        return c
+
     # 컬럼 너비
-    col_widths = {1:3, 2:25, 3:12, 4:12, 5:12, 6:12, 7:12, 8:12}
+    col_widths = {1:3, 2:25, 3:18, 4:12, 5:12, 6:12, 7:10, 8:14}
     for c, w in col_widths.items():
         ws.column_dimensions[get_column_letter(c)].width = w
 
     row = 1
     # 타이틀
     ws.merge_cells(f"B{row}:H{row}")
-    cell = ws.cell(row=row, column=2, value=f"■ {client_name} 검색광고 캠페인 운영 제안")
-    cell.font = Font(bold=True, size=14)
-    cell.fill = PatternFill("solid", fgColor="1F4E79")
-    cell.font = Font(bold=True, size=14, color="FFFFFF")
+    c = ws.cell(row=row, column=2, value=f"■ {client_name} 검색광고 캠페인 운영 제안")
+    c.font = Font(bold=True, size=14, color="FFFFFF")
+    c.fill = PatternFill("solid", fgColor="1F4E79")
+    c.alignment = Alignment(horizontal="left", vertical="center")
+    c.border = _bd()
     ws.row_dimensions[row].height = 28
     row += 2
 
-    # 전체 예산 요약
-    ws.cell(row=row, column=2, value="1. 캠페인 운영 예산 요약").font = Font(bold=True, size=11)
+    # ── 섹션1: 예산 요약 ─────────────────────────────
+    ws.merge_cells(f"B{row}:H{row}")
+    c = ws.cell(row=row, column=2, value="1. 캠페인 운영 예산 요약")
+    c.font = Font(bold=True, size=11)
+    ws.row_dimensions[row].height = 16
     row += 1
 
-    # 헤더
     headers = ["브랜드", "카테고리", "월 예산", "예상 노출", "예상 클릭", "CTR", "예상 비용"]
     for i, h in enumerate(headers):
-        cell = ws.cell(row=row, column=2+i, value=h)
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2E74B5")
-        cell.alignment = Alignment(horizontal="center")
+        _cell(row, 2+i, h, bold=True, bg="2E74B5", fg="FFFFFF")
+    ws.row_dimensions[row].height = 15
     row += 1
 
-    total_budget = total_imp = total_clk = total_cost = 0
+    total_imp = total_clk = total_cost = 0
     for result in brand_results:
         brand = result["brand_name"]
         recs  = result["recommended"]
-
-        # 예산/성과 집계
-        budget = 0
         imp = clk = cost = 0
         for r in recs:
             if not r.get("not_selected") and not r.get("is_fallback"):
                 imp  += (r.get("pc_sim_impressions") or 0) + (r.get("mo_sim_impressions") or 0)
                 clk  += (r.get("pc_sim_clicks") or 0) + (r.get("mo_sim_clicks") or 0)
                 cost += (r.get("pc_sim_cost") or 0) + (r.get("mo_sim_cost") or 0)
-
-        # client_profile에서 monthly_budget 가져오기
-        # 월 예산: client_profile monthly_budget 고정값
-        budget = result.get("monthly_budget", 500000)
-
-        # 카테고리: brand_profile의 제품 카테고리 사용
+        budget  = result.get("monthly_budget", 500000)
         cat_str = result.get("brand_category", "")
-
         ctr = round(clk/imp, 4) if imp > 0 else 0
-
         vals = [brand, cat_str, f"{budget:,}원", f"{imp:,}", f"{clk:,}",
                 f"{ctr*100:.2f}%", f"{cost:,}원"]
         for i, v in enumerate(vals):
-            cell = ws.cell(row=row, column=2+i, value=v)
-            cell.alignment = Alignment(horizontal="center")
-            if i == 0:
-                cell.alignment = Alignment(horizontal="left")
-
+            _cell(row, 2+i, v, align_h="left" if i == 0 else "center")
         total_imp  += imp
         total_clk  += clk
         total_cost += cost
+        ws.row_dimensions[row].height = 15
         row += 1
 
-    # 합계
     total_ctr = round(total_clk/total_imp, 4) if total_imp > 0 else 0
     total_vals = ["합계", "", "", f"{total_imp:,}", f"{total_clk:,}",
                   f"{total_ctr*100:.2f}%", f"{total_cost:,}원"]
     for i, v in enumerate(total_vals):
-        cell = ws.cell(row=row, column=2+i, value=v)
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill("solid", fgColor="D9E1F2")
-        cell.alignment = Alignment(horizontal="center")
+        _cell(row, 2+i, v, bold=True, bg="D9E1F2", align_h="left" if i == 0 else "center")
+    ws.row_dimensions[row].height = 15
     row += 2
 
-    # 브랜드별 키워드 현황
-    ws.cell(row=row, column=2, value="2. 브랜드별 키워드 현황").font = Font(bold=True, size=11)
+    # ── 섹션2: 키워드 현황 ────────────────────────────
+    ws.merge_cells(f"B{row}:H{row}")
+    c = ws.cell(row=row, column=2, value="2. 브랜드별 키워드 현황")
+    c.font = Font(bold=True, size=11)
+    ws.row_dimensions[row].height = 16
     row += 1
 
     headers2 = ["브랜드", "전체 키워드", "Estimate 성공", "Fallback", "브랜드KW", "일반KW", "경쟁사KW"]
     for i, h in enumerate(headers2):
-        cell = ws.cell(row=row, column=2+i, value=h)
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="2E74B5")
-        cell.alignment = Alignment(horizontal="center")
+        _cell(row, 2+i, h, bold=True, bg="2E74B5", fg="FFFFFF")
+    ws.row_dimensions[row].height = 15
     row += 1
 
     for result in brand_results:
@@ -1280,17 +1279,13 @@ def _write_overview_sheet(ws, brand_results, client_name):
             if not r.get("not_selected"):
                 c = r.get("category","")
                 cat_cnt[c] = cat_cnt.get(c,0) + 1
-
         brand_kw   = sum(v for k,v in cat_cnt.items() if "브랜드" in k)
         general_kw = sum(v for k,v in cat_cnt.items() if "일반" in k)
         comp_kw    = sum(v for k,v in cat_cnt.items() if "경쟁사" in k)
-
         vals = [brand, total, est, fb, brand_kw, general_kw, comp_kw]
         for i, v in enumerate(vals):
-            cell = ws.cell(row=row, column=2+i, value=v)
-            cell.alignment = Alignment(horizontal="center")
-            if i == 0:
-                cell.alignment = Alignment(horizontal="left")
+            _cell(row, 2+i, v, align_h="left" if i == 0 else "center")
+        ws.row_dimensions[row].height = 15
         row += 1
 
 
