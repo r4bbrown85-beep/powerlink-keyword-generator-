@@ -749,7 +749,8 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
     selected, total_cost, selected_keywords, standby_rows, all_options_map = \
         optimize_budget(keyword_rows, total_budget,
                         competitors=(brand_profile or {}).get("competitors", []),
-                        cat_config=(brand_profile or {}).get("keyword_categories", None))
+                        cat_config=(brand_profile or {}).get("keyword_categories", None),
+                        rank_overrides=(brand_profile or {}).get("rank_overrides", None))
 
     selected_map = {sim["keyword"]: sim for sim in selected}
 

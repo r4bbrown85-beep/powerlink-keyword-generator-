@@ -412,7 +412,7 @@ for key, default in [
     ("brand_results", None), ("client_name", ""),
     ("excel_bytes", None),   ("filename", ""),
     ("brands", [{}]),        ("custom_add_kws", {}),
-    ("custom_exc_kws", {}),
+    ("custom_exc_kws", {}),  ("custom_rank_kws", {}),
     ("sim_result", None),    ("sim_excel_bytes", None),
 ]:
     if key not in st.session_state:
@@ -975,6 +975,10 @@ if st.session_state.get("_gen_pending"):
                 brand_profile["must_keywords"] = brand_profile.get("must_keywords", []) + [
                     {"keyword": k, "target_rank": 3, "device": "BOTH"} for k in add_kws]
 
+            rank_ov = st.session_state.custom_rank_kws.get(bname, {})
+            if rank_ov:
+                brand_profile["rank_overrides"] = rank_ov
+
             status.info(f"[{i+1}/{total}] **{bname}** — AI 키워드 생성 중... (30~60초 소요)")
 
             brand_base = i / total
@@ -1030,10 +1034,15 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
 
     # 초기 df를 최초 1회만 생성해 고정 — 매번 재생성하면 data_editor 상태 충돌
     if _init_key not in st.session_state:
-        exc_set = set(st.session_state.custom_exc_kws.get(bname, []))
+        exc_set  = set(st.session_state.custom_exc_kws.get(bname, []))
+        rank_map = st.session_state.custom_rank_kws.get(bname, {})
         rows = []
         for r in all_rows:
             kw = r.get("keyword", "")
+            cur_rank = r.get("proposed_rank") or r.get("rank", "")
+            # 이전에 저장된 순위 override가 있으면 그 값 사용, 없으면 "자동"
+            saved_rank = rank_map.get(kw)
+            rank_label = f"{saved_rank}위" if saved_rank else "자동"
             rows.append({
                 "포함":      kw not in exc_set,
                 "키워드":    kw,
@@ -1043,9 +1052,13 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
                 "MO 검색수": int(r.get("mo_impr", 0) or 0),
                 "경쟁도":    r.get("competition", "-"),
                 "예상비용":  int((r.get("pc_cost") or 0) + (r.get("mo_cost") or 0)),
+                "현재 순위": str(cur_rank) if cur_rank else "-",
+                "목표 순위": rank_label,
                 "상태":      "대기" if r.get("not_selected") else "추천",
             })
         st.session_state[_init_key] = pd.DataFrame(rows)
+
+    _RANK_OPTIONS = ["자동", "1위", "2위", "3위", "4위", "5위"]
 
     st.caption(f"총 {len(all_rows)}개 키워드 (추천 {active_count}개 / 대기 {standby_count}개)")
     edited = st.data_editor(
@@ -1059,6 +1072,11 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
             "MO 검색수": st.column_config.NumberColumn("MO 검색수", format="%d"),
             "경쟁도":    st.column_config.TextColumn("경쟁도", width="small"),
             "예상비용":  st.column_config.NumberColumn("예상비용", format="%d원"),
+            "현재 순위": st.column_config.TextColumn("현재 순위", width="small", disabled=True),
+            "목표 순위": st.column_config.SelectboxColumn(
+                "목표 순위", options=_RANK_OPTIONS, width="small",
+                help="자동: 예산 최적화가 결정 / 1~5위: 해당 순위로 고정"
+            ),
             "상태":      st.column_config.TextColumn("상태", width="small"),
         },
         hide_index=True,
@@ -1071,6 +1089,19 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
     if excluded:
         st.caption(f"제외됨: {', '.join(excluded[:6])}{'...' if len(excluded) > 6 else ''}")
 
+    # 목표 순위 override 저장 ("자동" 아닌 것만)
+    rank_overrides = {}
+    for _, row in edited.iterrows():
+        v = row.get("목표 순위", "자동")
+        if v and v != "자동":
+            try:
+                rank_overrides[row["키워드"]] = int(v.replace("위", ""))
+            except ValueError:
+                pass
+    st.session_state.custom_rank_kws[bname] = rank_overrides
+    if rank_overrides:
+        st.caption(f"순위 고정: {', '.join(f'{k}→{v}위' for k, v in list(rank_overrides.items())[:4])}{'...' if len(rank_overrides) > 4 else ''}")
+
     st.divider()
     st.markdown("**키워드 추가**")
     add_input = st.text_area(
@@ -1081,9 +1112,19 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
     )
     add_kws = [k.strip() for k in add_input.replace(",", "\n").splitlines() if k.strip()]
     if st.button(f"⚡  {bname} — 커스텀 적용 후 재생성", key=f"regen_{bname}", type="primary", use_container_width=True):
-        # 버튼 클릭 시점에 제외 키워드를 명시적으로 다시 저장 (타이밍 이슈 방지)
+        # 버튼 클릭 시점에 모든 커스텀 설정을 명시적으로 저장 (타이밍 이슈 방지)
         st.session_state.custom_exc_kws[bname] = edited[edited["포함"] == False]["키워드"].tolist()
         st.session_state.custom_add_kws[bname] = add_kws
+        # 목표 순위 override 재저장
+        _rank_ov = {}
+        for _, row in edited.iterrows():
+            v = row.get("목표 순위", "자동")
+            if v and v != "자동":
+                try:
+                    _rank_ov[row["키워드"]] = int(v.replace("위", ""))
+                except ValueError:
+                    pass
+        st.session_state.custom_rank_kws[bname] = _rank_ov
         st.session_state._gen_pending = True
         st.rerun(scope="app")
 

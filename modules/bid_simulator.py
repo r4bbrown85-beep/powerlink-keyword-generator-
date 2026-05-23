@@ -646,7 +646,7 @@ def _apply_budget_cap(selected_map, all_records, total_budget):
             total_cost -= _real_cost(selected_map.pop(keyword))
 
 
-def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=None):
+def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=None, rank_overrides=None):
     if cat_config:
         cat_map = {c["name"]: c for c in cat_config}
     else:
@@ -1009,6 +1009,19 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
     # 5단계: 예산 초과 캡
     _apply_budget_cap(selected_map, all_records, total_budget)
+
+    # 6단계: 사용자 지정 목표 순위 적용 (rank_overrides)
+    # 최적화 결과와 무관하게 특정 키워드를 지정 순위로 고정
+    if rank_overrides:
+        for kw, target_rank in rank_overrides.items():
+            if kw not in selected_map:
+                continue
+            full_opts = _full_rank_opts_cache.get(kw, [])
+            if not full_opts:
+                continue
+            # target_rank에 가장 가까운 옵션 선택 (정확히 일치하는 rank가 없을 수 있음)
+            best_match = min(full_opts, key=lambda o: abs(o.get("rank", 5) - target_rank))
+            selected_map[kw] = best_match
 
     output_rows = []
     for row in sorted(
