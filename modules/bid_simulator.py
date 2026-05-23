@@ -217,6 +217,9 @@ def _cap_options_by_budget(options, category, total_budget, cat_map=None):
     max_cost    = total_budget * max_ratio
     target_rank = cat_cfg.get("target_rank")
     max_rank    = cat_cfg.get("max_rank")
+    # min_rank: 허용 가능한 최고 순위 번호 (낮을수록 공격적)
+    # ex) min_rank=2 → rank1 제외, 최대 rank2까지 upgrade 허용
+    min_rank    = cat_cfg.get("min_rank", 1)
 
     # 1. 예산 상한 필터
     capped = [opt for opt in options if opt["cost"] <= max_cost]
@@ -226,7 +229,15 @@ def _cap_options_by_budget(options, category, total_budget, cat_map=None):
     if not capped:
         return []
 
-    # 2. max_rank 필터: PC/MO 중 하나라도 달성 가능하면 유지
+    # 2. min_rank 필터: 너무 공격적인 rank 제외 (upgrade 상한 역할)
+    #    min_rank=2이면 rank1 옵션 제외 → upgrade가 rank2에서 멈춤
+    if min_rank and min_rank > 1:
+        rank_limited = [opt for opt in capped if opt.get("rank", 1) >= min_rank]
+        if rank_limited:
+            capped = rank_limited
+        # rank_limited가 비어있으면 기존 capped 유지 (모든 rank가 min_rank보다 좋은 경우)
+
+    # 3. max_rank 필터: PC/MO 중 하나라도 달성 가능하면 유지
     if max_rank:
         is_fallback = capped[0].get("is_fallback", True)
         if not is_fallback:
@@ -244,7 +255,7 @@ def _cap_options_by_budget(options, category, total_budget, cat_map=None):
             if rank_filtered:
                 capped = rank_filtered
 
-    # 3. target_rank에 가장 가까운 옵션 우선 정렬
+    # 4. target_rank에 가장 가까운 옵션 우선 정렬
     #    MO 검색량이 많으므로 MO 순위 기준 우선, PC는 보조
     if target_rank and capped:
         capped.sort(key=lambda x: (

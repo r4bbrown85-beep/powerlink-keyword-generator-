@@ -1068,12 +1068,14 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
 
     # 예산 시뮬레이션 — 시뮬레이터 전용 카테고리 설정 (max_single_ratio 완화)
     # AI 제안서(15% 캡)와 달리 시뮬레이터는 키워드 수가 적으므로 캡을 넓혀야 예산을 제대로 활용
+    # min_rank: 허용 최고 순위 번호. 브랜드는 1위 OK, 일반은 2위 이상으로 제한
+    # → upgrade 단계에서 일반 키워드가 1위까지 올라가는 것을 방지
     _sim_cat_config = [
         {"name": "브랜드 키워드", "type": "brand",   "priority": 1.30,
-         "min_keywords": 0, "target_rank": 1, "max_rank": 3,
+         "min_keywords": 0, "target_rank": 1, "max_rank": 3, "min_rank": 1,
          "max_single_ratio": 1.00, "cpc_factor": 1.10, "color": "BDD7EE"},
         {"name": "일반 키워드",   "type": "general", "priority": 1.00,
-         "min_keywords": 0, "target_rank": 3, "max_rank": 5,
+         "min_keywords": 0, "target_rank": 3, "max_rank": 5, "min_rank": 2,
          "max_single_ratio": 1.00, "cpc_factor": 1.00, "color": "FFF2CC"},
     ]
     _progress("예산 최적화 시뮬레이션 중...", 0.60)
