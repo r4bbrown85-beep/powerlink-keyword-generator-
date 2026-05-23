@@ -890,6 +890,29 @@ else:
     st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
     _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
 
+# AI 캐시 관리
+with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
+    from modules.ai_keyword_generator import list_ai_cached_brands, clear_ai_cache_for_brand, clear_all_ai_cache
+    cached_brands = list_ai_cached_brands()
+    if not cached_brands:
+        st.caption("저장된 AI 키워드 캐시 없음")
+    else:
+        st.caption(f"캐시된 브랜드 {len(cached_brands)}개 — 브랜드 정보·경쟁사가 바뀌었거나 AI 개선 후 최신 결과를 원할 때 삭제하세요.")
+        for cb in cached_brands:
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"**{cb['brand_name']}**  <span style='color:gray;font-size:0.85em'>{cb['cached_at']}  파일 {cb['files']}개</span>", unsafe_allow_html=True)
+            with col2:
+                if st.button("삭제", key=f"_cache_del_{cb['brand_name']}"):
+                    n = clear_ai_cache_for_brand(cb["brand_name"])
+                    st.success(f"삭제 완료 ({n}개)")
+                    st.rerun()
+    if cached_brands:
+        if st.button("전체 캐시 삭제", type="secondary"):
+            n = clear_all_ai_cache()
+            st.success(f"전체 삭제 완료 ({n}개)")
+            st.rerun()
+
 if _gen_btn:
     valid = True
     if not client_name.strip():

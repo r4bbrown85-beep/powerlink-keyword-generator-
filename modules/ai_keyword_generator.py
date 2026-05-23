@@ -306,6 +306,50 @@ def _save_ai_cache(cache_key: str, brand_name: str, data: dict):
         print(f"    AI 캐시 저장 실패: {e}")
 
 
+def clear_ai_cache_for_brand(brand_name: str) -> int:
+    """특정 브랜드의 AI 키워드 캐시(키워드 + 전략메모) 삭제. 삭제된 파일 수 반환."""
+    _AI_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    safe_brand = re.sub(r'[\\/:*?"<>| ]', "_", brand_name)
+    deleted = 0
+    for f in _AI_CACHE_DIR.glob(f"{safe_brand}_*.json"):
+        try:
+            f.unlink()
+            deleted += 1
+        except Exception:
+            pass
+    return deleted
+
+
+def clear_all_ai_cache() -> int:
+    """전체 AI 키워드 캐시 삭제. 삭제된 파일 수 반환."""
+    _AI_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    deleted = 0
+    for f in _AI_CACHE_DIR.glob("*.json"):
+        try:
+            f.unlink()
+            deleted += 1
+        except Exception:
+            pass
+    return deleted
+
+
+def list_ai_cached_brands() -> list[dict]:
+    """캐시된 브랜드 목록 반환 [{brand_name, cached_at, files}]."""
+    _AI_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    brands: dict[str, dict] = {}
+    for f in sorted(_AI_CACHE_DIR.glob("*.json")):
+        try:
+            import json as _json
+            data = _json.loads(f.read_text(encoding="utf-8"))
+            bname = data.get("brand_name", "?")
+            if bname not in brands:
+                brands[bname] = {"brand_name": bname, "cached_at": data.get("cached_at", "")[:16], "files": 0}
+            brands[bname]["files"] += 1
+        except Exception:
+            pass
+    return list(brands.values())
+
+
 def _strip_code_fence(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
