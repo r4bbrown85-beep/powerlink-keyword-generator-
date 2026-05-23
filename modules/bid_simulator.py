@@ -946,35 +946,6 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     # 5단계: 예산 초과 캡
     _apply_budget_cap(selected_map, all_records, total_budget)
 
-    # ── PC/MO 각각 최적 입찰가 계산 ─────────────────────────────────────
-    # selected_map의 옵션은 통합 weighted_score 기준으로 선택됐지만
-    # 실제 제안서에는 PC/MO 캠페인이 분리 운영되므로
-    # 각 디바이스에서 target_rank 달성하는 최적 입찰가를 따로 제안해야 함
-    def _find_best_bid_for_device(all_options, target_rank, device="pc"):
-        """
-        입찰가 후보들 중 target_rank에 가장 가까운 입찰가 반환.
-        device: "pc" 또는 "mo"
-        """
-        rank_key = "rank_pc" if device == "pc" else "rank_mo"
-        cost_key = "pc_cost" if device == "pc" else "mo_cost"
-        clk_key  = "pc_clicks" if device == "pc" else "mo_clicks"
-
-        # 클릭수 있는 옵션만
-        valid = [o for o in all_options if o.get(clk_key, 0) > 0]
-        if not valid:
-            return None
-
-        # target_rank 이내 달성 가능한 옵션 중 가장 저렴한 입찰가
-        achievable = [o for o in valid if o[rank_key] <= target_rank]
-        if achievable:
-            return min(achievable, key=lambda x: x["bid"])
-
-        # target_rank 달성 불가면 가장 좋은 순위 옵션
-        return min(valid, key=lambda x: (x[rank_key], x["bid"]))
-
-    # all_options_map: keyword → 전체 입찰가 후보 옵션 리스트
-    all_options_map = {item["keyword"]: item["options"] for item in all_records}
-
     output_rows = []
     for row in sorted(
         selected_map.values(),
@@ -982,31 +953,19 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     ):
         keyword  = row["keyword"]
         category = row["category"]
-        cat_cfg  = cat_map.get(category, {})
-        target_rank = cat_cfg.get("target_rank", 3)
 
-        # 선택된 옵션의 비용을 그대로 사용 (SOFT_CAP 추적과 일관성 유지)
-        # pc_bid/mo_bid는 target_rank 기준 최적화하되, 성과 데이터는 row 기준
-        all_opts = all_options_map.get(keyword, [row])
-        pc_best  = _find_best_bid_for_device(all_opts, target_rank, "pc")
-        mo_best  = _find_best_bid_for_device(all_opts, target_rank, "mo")
+        # 선택된 옵션(초기 선택 + upgrade 결과)을 그대로 사용
+        # upgrade로 rank1이 됐으면 rank1 입찰가+성과 표시 → 입찰가/성과/비용 3자 일관성 보장
+        # pc_bid, mo_bid는 build_keyword_options에서 디바이스별로 분리 저장되어 있음
+        pc_bid = row.get("pc_bid", row["bid"])
+        mo_bid = row.get("mo_bid", row["bid"])
 
-        # PC/MO 각각의 실제 입찰가 필드를 사용 (anchor "bid"가 아닌 pc_bid/mo_bid)
-        pc_bid = pc_best.get("pc_bid", pc_best["bid"]) if pc_best else row.get("pc_bid", row["bid"])
-        mo_bid = mo_best.get("mo_bid", mo_best["bid"]) if mo_best else row.get("mo_bid", row["bid"])
-
-        # PC/MO 성과 데이터: target_rank 최적 옵션 기준 (입찰가-성과 일관성)
-        # target_rank 입찰가로 제안하므로 그 입찰가에서 기대되는 성과를 표시해야 함
-        pc_opt = pc_best if pc_best else row
-        mo_opt = mo_best if mo_best else row
-
-        # target_rank 기준 개별 PC/MO 성과
-        _pc_clk  = (pc_opt.get("pc_clicks",  row.get("pc_clicks",  0)) or 0)
-        _mo_clk  = (mo_opt.get("mo_clicks",  row.get("mo_clicks",  0)) or 0)
-        _pc_impr = (pc_opt.get("pc_impressions", row.get("pc_impressions", 0)) or 0)
-        _mo_impr = (mo_opt.get("mo_impressions", row.get("mo_impressions", 0)) or 0)
-        _pc_cst  = (pc_opt.get("pc_cost",  row.get("pc_cost",  0)) or 0)
-        _mo_cst  = (mo_opt.get("mo_cost",  row.get("mo_cost",  0)) or 0)
+        _pc_clk  = row.get("pc_clicks",      0) or 0
+        _mo_clk  = row.get("mo_clicks",      0) or 0
+        _pc_impr = row.get("pc_impressions", 0) or 0
+        _mo_impr = row.get("mo_impressions", 0) or 0
+        _pc_cst  = row.get("pc_cost",        0) or 0
+        _mo_cst  = row.get("mo_cost",        0) or 0
         _tot_clk  = _pc_clk + _mo_clk
         _tot_impr = _pc_impr + _mo_impr
         _tot_cst  = _pc_cst + _mo_cst
@@ -1015,26 +974,26 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             "keyword":        keyword,
             "category":       category,
             "keyword_type":   row["keyword_type"],
-            "bid":            row["bid"],       # 통합 입찰가 (참고용)
-            "pc_bid":         pc_bid,           # PC 전용 최적 입찰가
-            "mo_bid":         mo_bid,           # MO 전용 최적 입찰가
+            "bid":            row["bid"],
+            "pc_bid":         pc_bid,
+            "mo_bid":         mo_bid,
             "rank":           row["rank"],
-            "rank_pc":        pc_opt.get("rank_pc", row["rank_pc"]),
-            "rank_mo":        mo_opt.get("rank_mo", row["rank_mo"]),
+            "rank_pc":        row.get("rank_pc", row["rank"]),
+            "rank_mo":        row.get("rank_mo", row["rank"]),
             "impressions":    _tot_impr,
             "ctr":            round(_tot_clk / _tot_impr, 4) if _tot_impr > 0 else 0,
             "clicks":         _tot_clk,
             "cpc":            int(_tot_cst / _tot_clk) if _tot_clk > 0 else 0,
             "cost":           _tot_cst,
             "pc_impressions": _pc_impr,
-            "pc_ctr":         pc_opt.get("pc_ctr", round(_pc_clk / _pc_impr, 4) if _pc_impr > 0 else 0),
+            "pc_ctr":         row.get("pc_ctr", round(_pc_clk / _pc_impr, 4) if _pc_impr > 0 else 0),
             "pc_clicks":      _pc_clk,
-            "pc_cpc":         pc_opt.get("pc_cpc", int(_pc_cst / _pc_clk) if _pc_clk > 0 else 0),
+            "pc_cpc":         row.get("pc_cpc", int(_pc_cst / _pc_clk) if _pc_clk > 0 else 0),
             "pc_cost":        _pc_cst,
             "mo_impressions": _mo_impr,
-            "mo_ctr":         mo_opt.get("mo_ctr", round(_mo_clk / _mo_impr, 4) if _mo_impr > 0 else 0),
+            "mo_ctr":         row.get("mo_ctr", round(_mo_clk / _mo_impr, 4) if _mo_impr > 0 else 0),
             "mo_clicks":      _mo_clk,
-            "mo_cpc":         mo_opt.get("mo_cpc", int(_mo_cst / _mo_clk) if _mo_clk > 0 else 0),
+            "mo_cpc":         row.get("mo_cpc", int(_mo_cst / _mo_clk) if _mo_clk > 0 else 0),
             "mo_cost":        _mo_cst,
             "anchor_bid":     row.get("anchor_bid", 0),
             "is_fallback":    row.get("is_fallback", False),
