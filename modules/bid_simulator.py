@@ -887,6 +887,43 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             _upgrade_selected_with_budget(no_cap_selected, upgrade_target, selected_map)
         accumulated = sum(_real_cost(v) for v in selected_map.values())
 
+    # 3-2-b: rank2 업그레이드 후에도 예산 활용률이 낮으면 rank1 업그레이드 추가 허용
+    # min_rank 필터로 rank1이 item["options"]에서 제외됐더라도,
+    # _full_rank_opts_cache(cap 이전 전체 순위)를 활용해 rank1까지 업그레이드 허용
+    # 조건: 예산 활용률 < 65% + 단일 키워드 rank1 비용 <= 총 예산의 30%
+    accumulated = sum(_real_cost(v) for v in selected_map.values())
+    if accumulated < total_budget * 0.65:
+        rank1_fill_candidates = sorted(
+            [(kw, opt) for kw, opt in selected_map.items()
+             if not opt.get("is_fallback", False)
+             and cat_map.get(opt.get("category", ""), {}).get("max_budget_ratio") is None],
+            key=lambda x: -x[1]["weighted_score"]
+        )
+        for kw, current in rank1_fill_candidates:
+            full_opts = _full_rank_opts_cache.get(kw, [])
+            if not full_opts:
+                continue
+            cur_cost = _real_cost(current)
+            cur_rank  = current.get("rank", 5)
+            remaining_now = total_budget - sum(_real_cost(v) for v in selected_map.values())
+            if remaining_now <= 0:
+                break
+            # 현재보다 높은 순위(낮은 rank 번호)이고, 비용 상한 내이며, 잔여 예산으로 커버되는 옵션
+            per_kw_cap = total_budget * 0.30
+            better_opts = [
+                o for o in full_opts
+                if o.get("rank", 5) < cur_rank
+                and _real_cost(o) <= per_kw_cap
+                and _real_cost(o) - cur_cost <= remaining_now
+                and _real_cost(o) - cur_cost > 0
+            ]
+            if not better_opts:
+                continue
+            # 가장 상위 순위(가장 낮은 rank 번호)로 업그레이드
+            best_up = min(better_opts, key=lambda x: x.get("rank", 5))
+            selected_map[kw] = best_up
+        accumulated = sum(_real_cost(v) for v in selected_map.values())
+
     # 3-3: 여전히 예산이 많이 남으면 추가 키워드 선택 (Fallback 제외)
     accumulated = sum(_real_cost(v) for v in selected_map.values())
     if accumulated < total_budget * 0.50:
