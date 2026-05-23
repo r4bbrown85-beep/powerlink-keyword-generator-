@@ -1271,7 +1271,7 @@ def _write_overview_sheet(ws, brand_results, client_name):
     ws.row_dimensions[row].height = 16
     row += 1
 
-    headers2 = ["브랜드", "전체 키워드", "Estimate 성공", "Fallback", "브랜드KW", "일반KW", "경쟁사KW"]
+    headers2 = ["브랜드", "전체 키워드", "성과 예측 키워드", "입찰가 추정 키워드", "브랜드KW", "일반KW", "경쟁사KW"]
     for i, h in enumerate(headers2):
         _cell(row, 2+i, h, bold=True, bg="2E74B5", fg="FFFFFF")
     ws.row_dimensions[row].height = 15

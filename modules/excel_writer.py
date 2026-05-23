@@ -404,7 +404,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
 
     ws.merge_cells(f"B{row}:{LAST_L}{row}")
     _write_cell(ws, row, 2,
-                "※ '추정' 표시 항목은 네이버 Estimate API 미지원 키워드로, 노출/클릭 데이터 기반 추정값입니다.",
+                "※ '추정' 표시 항목은 검색량이 적어 네이버 예측 데이터가 제공되지 않는 키워드입니다. 동일 카테고리 평균을 기준으로 입찰가를 제안합니다.",
                 font_size=9, font_color="595959", italic=True, align_h="left")
 
 
@@ -691,6 +691,8 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
             click_rate = "기준"
         elif all_zero_expansion and all_kws_included:
             click_rate = "키워드 추가 필요"
+        elif i > 1 and sc["cost"] == scenarios[i - 1]["cost"]:
+            click_rate = "추가 집행 가능 키워드 없음"
         else:
             click_rate = f"+{(sc['clicks']/base_clicks - 1)*100:.0f}%"
         _write_cell(ws, row, 2, sc["label"],       bg=bg, align_h="left", bold=(i==0))
@@ -887,15 +889,15 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
     row = 1
     # 타이틀
     ws.merge_cells(f"B{row}:L{row}")
-    _write_cell(ws, row, 2, f"{advertiser}  최적 효율 제안 (예산 무제한)",
+    _write_cell(ws, row, 2, f"{advertiser}  최적 효율 제안 (전체 키워드 최적 집행 기준)",
                 bold=True, font_size=14, bg=COLOR_TITLE_BG, font_color=COLOR_TITLE_FG, align_h="left")
     row += 1
 
     # 설명 박스
     ws.merge_cells(f"B{row}:L{row}")
     _write_cell(ws, row, 2,
-                "선별된 전체 키워드를 우선순위별 최적 순위로 집행할 경우의 예상 성과입니다. "
-                "SA를 처음 시작하거나 최대 효율을 원하는 경우 참고 예산으로 활용하세요.",
+                "선별된 전체 키워드를 예산 제한 없이 최적 순위로 집행할 경우의 예상 성과입니다. "
+                "이 금액이 이 캠페인의 최대 집행 가능 예산입니다. SA를 처음 시작하거나 최대 효율을 원하는 경우 참고하세요.",
                 font_size=10, font_color="475569", align_h="left")
     row += 2
 
@@ -988,5 +990,5 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
     ws.merge_cells(f"B{row}:L{row}")
     _write_cell(ws, row, 2,
                 f"* 이 제안서를 전체 집행하려면 월 약 {total_cost:,}원의 예산이 필요합니다. "
-                "* 표시 키워드는 Estimate 데이터 미보유(입찰가 제안 기준).",
+                "* 표시 키워드는 검색량이 적어 네이버 예측 데이터가 제공되지 않습니다(카테고리 평균 기준 입찰가 제안).",
                 font_size=9, font_color="888888", align_h="left")
