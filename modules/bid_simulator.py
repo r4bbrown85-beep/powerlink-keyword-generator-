@@ -577,8 +577,9 @@ def _upgrade_selected_with_budget(records, budget_left, selected_map):
             ):
                 diff_cost  = _real_cost(better) - cur_cost
                 diff_score = better["weighted_score"] - current["weighted_score"]
-                # diff_cost만 양수면 업그레이드 허용 (클릭 늘리기 위해 비용 증가 감수)
-                if diff_cost <= 0:
+                # 비용이 증가하고 효율도 함께 증가하는 경우만 업그레이드 허용
+                # diff_score <= 0: 순위를 올려도 효율이 감소 → 업그레이드 불필요
+                if diff_cost <= 0 or diff_score <= 0:
                     continue
                 candidates.append({
                     "keyword":        item["keyword"],
