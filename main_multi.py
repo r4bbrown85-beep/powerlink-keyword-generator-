@@ -474,7 +474,10 @@ def is_relevant_keyword(keyword, relevance_tokens, profile):
 
 
 def apply_category_caps(rows):
-    """카테고리별 키워드 수 상한 적용 — ai_seed 우선, 그 다음 score 순으로 선발."""
+    """카테고리별 키워드 수 상한 적용.
+    선발 우선순위: ai_seed 여부 → recommendation_score(효율 점수, 있을 때) → score(기본 점수).
+    Naver stats 조회 + recommendation_score 계산 후에 호출해야 효율 기준 선발이 가능함.
+    """
     by_cat = {}
     for row in rows:
         cat = row.get("category", "일반 키워드")
@@ -494,7 +497,9 @@ def apply_category_caps(rows):
 
         sorted_rows = sorted(cat_rows, key=lambda x: (
             0 if x.get("source") == "ai_seed" else 1,
-            -x.get("score", 0),
+            # recommendation_score가 있으면(stats 조회 후) 효율 기준으로 선발,
+            # 없으면(stats 조회 전 호출 시) 기본 score로 fallback
+            -x.get("recommendation_score", x.get("score", 0)),
         ))
         result.extend(sorted_rows[:cap])
         print(f"  카테고리 상한: {cat} {len(cat_rows)}→{cap}개")
@@ -920,11 +925,7 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
         row["score"] = score_map.get(row["keyword"], 50)
     print(f"  전체 키워드 (필터 후): {len(rows)}개")
 
-    # 4-2. 카테고리 상한 적용 (Naver API 호출 전 — API 비용/속도 최적화)
-    rows = apply_category_caps(rows)
-    print(f"  카테고리 상한 후: {len(rows)}개")
-
-    # 5. 네이버 데이터 조회
+    # 5. 네이버 데이터 조회 (카테고리 상한 적용 전 — 효율 기준 선발을 위해 stats 먼저 조회)
     _progress("네이버 검색 통계 조회 중...", 0.60)
     print("  [5] 네이버 데이터 조회...")
     rows = attach_naver_stats(rows)
@@ -959,6 +960,11 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     _progress("추천 키워드 선정 중...", 0.72)
     for row in rows:
         row["recommendation_score"] = calc_recommendation_score(row)
+
+    # 6-1. 카테고리 상한 적용 — recommendation_score 계산 후 실행해 효율 기준으로 선발
+    rows = apply_category_caps(rows)
+    print(f"  카테고리 상한 후: {len(rows)}개")
+
     recommended = sorted(rows, key=lambda x: -x.get("recommendation_score", 0))
     print(f"  추천 키워드: {len(recommended)}개")
 
