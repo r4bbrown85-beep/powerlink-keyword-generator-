@@ -285,7 +285,7 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
                     })
                 curve.sort(key=lambda x: x["bid"])
                 # 보강된 커브를 캐시에 저장 (다음 실행 시 재호출 방지)
-                _save_cache(_cache_path(api_kw, f"{api_device}_curve_kp"), curve)
+                _save_cache(_cache_path(api_kw, f"{api_device}_curve"), curve)
 
         curve_map = {e["bid"]: e for e in curve}
 

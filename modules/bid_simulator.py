@@ -995,10 +995,21 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         pc_bid = pc_best.get("pc_bid", pc_best["bid"]) if pc_best else row.get("pc_bid", row["bid"])
         mo_bid = mo_best.get("mo_bid", mo_best["bid"]) if mo_best else row.get("mo_bid", row["bid"])
 
-        # 성과 데이터: selected_map에서 선택된 row 기준 (비용 일관성)
-        # pc_cost/mo_cost는 row에서 가져와야 SOFT_CAP 추적값과 일치
-        pc_opt = row   # selected_map의 opt를 그대로 사용
-        mo_opt = row
+        # PC/MO 성과 데이터: target_rank 최적 옵션 기준 (입찰가-성과 일관성)
+        # target_rank 입찰가로 제안하므로 그 입찰가에서 기대되는 성과를 표시해야 함
+        pc_opt = pc_best if pc_best else row
+        mo_opt = mo_best if mo_best else row
+
+        # target_rank 기준 개별 PC/MO 성과
+        _pc_clk  = (pc_opt.get("pc_clicks",  row.get("pc_clicks",  0)) or 0)
+        _mo_clk  = (mo_opt.get("mo_clicks",  row.get("mo_clicks",  0)) or 0)
+        _pc_impr = (pc_opt.get("pc_impressions", row.get("pc_impressions", 0)) or 0)
+        _mo_impr = (mo_opt.get("mo_impressions", row.get("mo_impressions", 0)) or 0)
+        _pc_cst  = (pc_opt.get("pc_cost",  row.get("pc_cost",  0)) or 0)
+        _mo_cst  = (mo_opt.get("mo_cost",  row.get("mo_cost",  0)) or 0)
+        _tot_clk  = _pc_clk + _mo_clk
+        _tot_impr = _pc_impr + _mo_impr
+        _tot_cst  = _pc_cst + _mo_cst
 
         output_rows.append({
             "keyword":        keyword,
@@ -1010,21 +1021,21 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             "rank":           row["rank"],
             "rank_pc":        pc_opt.get("rank_pc", row["rank_pc"]),
             "rank_mo":        mo_opt.get("rank_mo", row["rank_mo"]),
-            "impressions":    row["impressions"],
-            "ctr":            row["ctr"],
-            "clicks":         row["clicks"],
-            "cpc":            row["cpc"],
-            "cost":           row["cost"],
-            "pc_impressions": pc_opt.get("pc_impressions", row["pc_impressions"]),
-            "pc_ctr":         pc_opt.get("pc_ctr", row["pc_ctr"]),
-            "pc_clicks":      pc_opt.get("pc_clicks", row["pc_clicks"]),
-            "pc_cpc":         pc_opt.get("pc_cpc", row["pc_cpc"]),
-            "pc_cost":        pc_opt.get("pc_cost", row["pc_cost"]),
-            "mo_impressions": mo_opt.get("mo_impressions", row["mo_impressions"]),
-            "mo_ctr":         mo_opt.get("mo_ctr", row["mo_ctr"]),
-            "mo_clicks":      mo_opt.get("mo_clicks", row["mo_clicks"]),
-            "mo_cpc":         mo_opt.get("mo_cpc", row["mo_cpc"]),
-            "mo_cost":        mo_opt.get("mo_cost", row["mo_cost"]),
+            "impressions":    _tot_impr,
+            "ctr":            round(_tot_clk / _tot_impr, 4) if _tot_impr > 0 else 0,
+            "clicks":         _tot_clk,
+            "cpc":            int(_tot_cst / _tot_clk) if _tot_clk > 0 else 0,
+            "cost":           _tot_cst,
+            "pc_impressions": _pc_impr,
+            "pc_ctr":         pc_opt.get("pc_ctr", round(_pc_clk / _pc_impr, 4) if _pc_impr > 0 else 0),
+            "pc_clicks":      _pc_clk,
+            "pc_cpc":         pc_opt.get("pc_cpc", int(_pc_cst / _pc_clk) if _pc_clk > 0 else 0),
+            "pc_cost":        _pc_cst,
+            "mo_impressions": _mo_impr,
+            "mo_ctr":         mo_opt.get("mo_ctr", round(_mo_clk / _mo_impr, 4) if _mo_impr > 0 else 0),
+            "mo_clicks":      _mo_clk,
+            "mo_cpc":         mo_opt.get("mo_cpc", int(_mo_cst / _mo_clk) if _mo_clk > 0 else 0),
+            "mo_cost":        _mo_cst,
             "anchor_bid":     row.get("anchor_bid", 0),
             "is_fallback":    row.get("is_fallback", False),
         })
