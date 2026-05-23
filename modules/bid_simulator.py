@@ -911,13 +911,15 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             full_opts = _full_rank_opts_cache.get(kw, [])
             if not full_opts:
                 continue
-            cur_cost = _real_cost(current)
-            cur_rank  = current.get("rank", 5)
+            cur_cost    = _real_cost(current)
+            cur_rank    = current.get("rank", 5)
+            cur_score   = current.get("weighted_score", 0.0)
             # BUDGET_OVERAGE_RATIO 기준 잔여 예산 (110% 한도까지 허용)
             remaining_now = total_budget * BUDGET_OVERAGE_RATIO - sum(_real_cost(v) for v in selected_map.values())
             if remaining_now <= 0:
                 break
             # 현재보다 높은 순위(낮은 rank 번호)이고, 비용 상한 내이며, 잔여 예산으로 커버되는 옵션
+            # diff_score > 0 조건 추가: 효율이 개선되는 옵션만 대상
             per_kw_cap = total_budget * 0.30
             better_opts = [
                 o for o in full_opts
@@ -925,11 +927,16 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                 and _real_cost(o) <= per_kw_cap
                 and _real_cost(o) - cur_cost <= remaining_now
                 and _real_cost(o) - cur_cost > 0
+                and o.get("weighted_score", 0.0) - cur_score > 0
             ]
             if not better_opts:
                 continue
-            # 가장 상위 순위(가장 낮은 rank 번호)로 업그레이드
-            best_up = min(better_opts, key=lambda x: x.get("rank", 5))
+            # 한계효율(diff_score / diff_cost) 가장 높은 옵션으로 업그레이드
+            # → 무조건 rank1이 아니라, 비용 대비 효율 개선이 가장 큰 순위 선택
+            best_up = max(
+                better_opts,
+                key=lambda o: (o["weighted_score"] - cur_score) / max(_real_cost(o) - cur_cost, 1)
+            )
             selected_map[kw] = best_up
         accumulated = sum(_real_cost(v) for v in selected_map.values())
 
