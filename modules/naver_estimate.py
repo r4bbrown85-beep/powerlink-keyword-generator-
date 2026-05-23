@@ -324,9 +324,9 @@ def get_rank_based_estimates_cached(keyword: str, api_key: str, secret: str, cus
                                      kt_pc_impr: int = None, kt_mo_impr: int = None,
                                      cache_days: int = CACHE_DAYS) -> dict:
     """순위별 Estimate 결과 (결과 캐시 포함).
-    cache key suffix _v2: rank1_bid 산출 로직 수정(api2 우선) 반영.
+    cache key suffix _v4: target_rank 성과 데이터 일관성 수정 반영.
     """
-    path = _cache_path(_normalize(keyword), "rank_estimates_v3")
+    path = _cache_path(_normalize(keyword), "rank_estimates_v4")
     cached = _load_cache(path, cache_days)
     if cached is not None:
         return cached
