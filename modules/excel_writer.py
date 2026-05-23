@@ -132,7 +132,7 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
 #  B:키워드  C:구분  D:매체  E:입찰가  F:노출  G:클릭  H:비용  I:순위  J:비고
 _PROP_LAST_COL = 10  # J
 
-def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
+def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=None):
     widths = {1:3, 2:26, 3:12, 4:5, 5:11, 6:10, 7:8, 8:12, 9:6, 10:8}
     for c, w in widths.items():
         ws.column_dimensions[get_column_letter(c)].width = w
@@ -150,6 +150,24 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc):
                 font_color=COLOR_TITLE_FG, font_size=14, align_h="left")
     ws.row_dimensions[row].height = 24
     row += 2
+
+    # AI SA 전략 인사이트 (웹 검색 기반 자동 생성)
+    if sa_memo and sa_memo.strip():
+        ws.merge_cells(f"B{row}:{LAST_L}{row}")
+        _write_cell(ws, row, 2, "◆ AI 전략 인사이트 (자동 생성)",
+                    bold=True, bg="EBF3FB", font_color="1F4E79", align_h="left", font_size=10)
+        ws.row_dimensions[row].height = 16
+        row += 1
+        for line in sa_memo.strip().splitlines():
+            if not line.strip():
+                row += 1
+                continue
+            ws.merge_cells(f"B{row}:{LAST_L}{row}")
+            _write_cell(ws, row, 2, line.strip(),
+                        font_size=9, font_color="2C3E50", align_h="left")
+            ws.row_dimensions[row].height = 13
+            row += 1
+        row += 1
 
     # 카테고리 전략 설명
     if isinstance(category_desc, dict):

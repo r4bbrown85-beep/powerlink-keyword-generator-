@@ -1006,17 +1006,18 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
         optimal_data = None
 
     return {
-        "brand_name":      brand_name,
-        "brand_category":  brand_profile.get("category", ""),
-        "monthly_budget":  brand_profile.get("monthly_budget", 500000),
-        "rows":          rows,
-        "recommended":   recommended,
-        "category_desc": category_desc,
-        "summary":       summary,
-        "standby_rows":  standby_rows,
-        "scenario_data": scenario_data,
-        "optimal_data":  optimal_data,
-        "total_cost":    total_cost,
+        "brand_name":        brand_name,
+        "brand_category":    brand_profile.get("category", ""),
+        "monthly_budget":    brand_profile.get("monthly_budget", 500000),
+        "rows":              rows,
+        "recommended":       recommended,
+        "category_desc":     category_desc,
+        "sa_strategy_memo":  brand_profile.get("sa_strategy_memo", ""),
+        "summary":           summary,
+        "standby_rows":      standby_rows,
+        "scenario_data":     scenario_data,
+        "optimal_data":      optimal_data,
+        "total_cost":        total_cost,
     }
 
 
@@ -1331,6 +1332,7 @@ def save_multi_brand_excel(brand_results, filename, client_name, return_bytes=Fa
             rec_proposal,
             brand_name,
             result["category_desc"],
+            sa_memo=result.get("sa_strategy_memo", ""),
         )
 
         ws_expanded = wb.create_sheet(title=f"{short_name}_확장제안")

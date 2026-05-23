@@ -255,6 +255,12 @@ _NEGATIVE_INTENT_PATTERNS = [
     "업무분장", "민간군사기업",
     # 초광범위 기업 비교 패턴 — 특정 브랜드 구매 의도 없음
     "기업비교", "기업추천", "기업가격",
+    # 서식/양식 검색 — 무료 문서 탐색 의도, 소프트웨어 구매 전환 없음
+    "양식", "서식", "일지양식", "일지서식",
+    # 기업 분석/평가 정보 검색 — 비즈메카류 서비스와 무관
+    "기업분析보고서", "기업분석보고서", "기업분析사이트", "기업분석사이트",
+    # 기업 검색 디렉토리 — 소프트웨어/서비스 구매 의도 없음
+    "기업검색", "중소기업검색",
 ]
 
 # AI 키워드 캐시 설정
@@ -423,8 +429,8 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
                         break
 
             # 경쟁사 단독 키워드 차단: 경쟁사명 포함 + 우리 브랜드명 없음
-            # (브랜드 비교 키워드 "A vs B" 등 브랜드명이 같이 있는 경우는 허용)
-            if not skip and competitors_lower and brand_lower:
+            # 단, 경쟁사 키워드 카테고리는 경쟁사명이 포함되는 것이 의도적이므로 제외
+            if not skip and competitors_lower and brand_lower and cat != "경쟁사 키워드":
                 for comp in competitors_lower:
                     if comp in kw_lower and brand_lower not in kw_lower:
                         skip = True
