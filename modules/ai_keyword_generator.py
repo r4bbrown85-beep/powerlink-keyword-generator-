@@ -251,6 +251,8 @@ _NEGATIVE_INTENT_PATTERNS = [
     "폐기", "버리는법", "처분방법", "재활용방법", "공짜", "무료로 받",
     "주가", "주식", "채용", "취업", "공채", "입사지원", "합병",
     "as of", "investor",
+    # 행정/서식 — 문서 다운로드 의도, 구매 전환 없음
+    "업무분장", "민간군사기업",
 ]
 
 # AI 키워드 캐시 설정
@@ -344,6 +346,11 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
     brand_lower        = profile.get("brand_name", "").lower()
     category_lower     = profile.get("category", "").lower()
     is_sns_brand       = any(hint in category_lower for hint in _SNS_CATEGORY_HINTS)
+    # 경쟁사명 목록 (3자 이상만, 소문자 정규화)
+    competitors_lower  = [
+        c.lower().strip() for c in profile.get("competitors", [])
+        if isinstance(c, str) and len(c.strip()) >= 3
+    ]
 
     removed = []
     result  = {}
@@ -366,6 +373,14 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
             if not skip:
                 for pat in _NEGATIVE_INTENT_PATTERNS:
                     if pat in kw_text:
+                        skip = True
+                        break
+
+            # 경쟁사 단독 키워드 차단: 경쟁사명 포함 + 우리 브랜드명 없음
+            # (브랜드 비교 키워드 "A vs B" 등 브랜드명이 같이 있는 경우는 허용)
+            if not skip and competitors_lower and brand_lower:
+                for comp in competitors_lower:
+                    if comp in kw_lower and brand_lower not in kw_lower:
                         skip = True
                         break
 
