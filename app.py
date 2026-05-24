@@ -890,9 +890,6 @@ else:
     st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
     _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
 
-# 버튼 클릭 직후 ~ 생성 실행 전 사이: 화면 상단에 즉시 피드백 (Streamlit rerun 지연 보완)
-if _gen_btn and not st.session_state.get("_gen_pending"):
-    st.info("⏳ 입력 값 확인 중... 잠시 후 생성이 시작됩니다.")
 
 # AI 캐시 관리
 with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
@@ -951,7 +948,6 @@ if _gen_btn:
             pass
 
     if valid:
-        # 버튼 클릭 상태가 rerun 중 유실되지 않도록 세션 플래그로 저장
         st.session_state._gen_client_name   = client_name
         st.session_state._gen_brand_configs = brand_configs
         st.session_state._gen_goal_str      = (
@@ -960,7 +956,7 @@ if _gen_btn:
             + (f" | 시즌: {season_info}" if season_info else "")
         )
         st.session_state._gen_pending = True
-        st.rerun()
+        # st.rerun() 없이 바로 _gen_pending 블록으로 진입 — 중간 플래시 제거
 
 if st.session_state.get("_gen_pending"):
     st.session_state._gen_pending = False
@@ -1072,6 +1068,7 @@ if st.session_state.get("_gen_pending"):
             for res in brand_results
         )
         st.success(f"제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
+        st.rerun()  # 결과 화면(SECTION 4)으로 깔끔하게 전환
 
     except Exception as e:
         st.error(f"오류: {e}")
