@@ -919,13 +919,27 @@ with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
 
 if _gen_btn:
     valid = True
+    _err_msgs = []
+
     if not client_name.strip():
-        st.error("광고주명을 입력해주세요.")
+        _err_msgs.append("광고주명을 입력해주세요.")
         valid = False
+
     for i, bc in enumerate(brand_configs):
-        if not bc["brand_name"] or not bc["category"]:
-            st.error(f"Brand {i+1}: 브랜드명과 카테고리는 필수입니다.")
+        # 위젯 세션스테이트 키로 폴백 — 버튼 즉시 클릭 시 값 누락 대비
+        _bname = bc.get("brand_name") or st.session_state.get(f"bname_{i}", "")
+        _cat   = bc.get("category")  or st.session_state.get(f"cat_{i}", "")
+        if not _bname or not _cat:
+            _err_msgs.append(f"Brand {i+1}: 브랜드명과 카테고리를 입력해주세요.")
             valid = False
+
+    if _err_msgs:
+        for _msg in _err_msgs:
+            st.error(_msg)
+        try:
+            st.toast(" | ".join(_err_msgs), icon="❌")
+        except Exception:
+            pass
 
     if valid:
         # 버튼 클릭 상태가 rerun 중 유실되지 않도록 세션 플래그로 저장

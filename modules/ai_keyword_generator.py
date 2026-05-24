@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -17,21 +18,31 @@ def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int 
               model: str = None) -> str:
     """
     Claude 우선, ANTHROPIC_API_KEY 없으면 OpenAI(gpt-4o) 폴백.
+    429 rate_limit_error 발생 시 최대 2회 재시도 (65초 간격).
     model 인자로 특정 모델 지정 가능 (기본: claude-sonnet-4-6).
     """
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     if anthropic_key:
         import anthropic as _anthropic
-        c = _anthropic.Anthropic(api_key=anthropic_key)
-        resp = c.messages.create(
-            model=model or "claude-sonnet-4-6",
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-            timeout=90,
-        )
-        return resp.content[0].text
+        c = _anthropic.Anthropic(api_key=anthropic_key, max_retries=0)
+        for attempt in range(3):
+            try:
+                resp = c.messages.create(
+                    model=model or "claude-sonnet-4-6",
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                    timeout=90,
+                )
+                return resp.content[0].text
+            except _anthropic.RateLimitError:
+                if attempt < 2:
+                    wait_sec = 65
+                    print(f"    [API] 토큰 한도 초과 — {wait_sec}초 후 재시도 ({attempt+1}/2)...")
+                    time.sleep(wait_sec)
+                else:
+                    raise
     else:
         resp = _openai_client.chat.completions.create(
             model="gpt-4o",
@@ -487,53 +498,28 @@ def generate_sa_strategy_memo(profile: dict) -> str:
     notes_line      = f"\n캠페인 메모: {campaign_notes}" if campaign_notes else ""
     identity_line   = f"\n브랜드 정의: {identity_stmt}" if identity_stmt else ""
 
-    prompt = f"""당신은 네이버 파워링크 검색광고 전략 컨설턴트입니다.
-아래 광고주의 캠페인 제안서 작성을 위해 웹 검색으로 실제 정보를 수집한 뒤, 키워드 전략 인사이트를 도출해주세요.
+    prompt = f"""네이버 파워링크 캠페인 제안서를 위한 키워드 전략 인사이트를 도출해주세요.
 
-━━━ 광고주 정보 ━━━
-브랜드: {brand}
-카테고리: {category}
-제품/서비스: {products_str}
-경쟁사: {competitors_str}
-광고 목표: {campaign_goal}{identity_line}{notes_line}
+광고주: {brand} / 카테고리: {category} / 제품: {products_str}
+경쟁사: {competitors_str} / 목표: {campaign_goal}{identity_line}{notes_line}
 
-━━━ 웹 검색 과제 ━━━
-다음 항목들을 웹에서 검색해 실제 최신 정보를 수집하세요:
-1. "{brand}"의 주요 서비스/제품 특징, 요금제, 가입 조건
-2. "{brand}"의 주요 경쟁사({competitors_str})와의 차별점
-3. "{category}" 분야에서 잠재 고객이 네이버에서 검색할 법한 키워드 패턴
-4. "{brand}" 관련 최근 이슈, 프로모션, 타깃 고객군
+웹 검색으로 {brand}의 서비스 특징, 경쟁사와의 차별점, 타깃 고객 검색 패턴을 파악하세요.
 
-━━━ 분석 항목 (수집한 정보 기반, 총 600자 이내) ━━━
-
-1. 브랜드 현황 요약
-   웹 검색으로 파악한 {brand}의 핵심 서비스/특징/포지셔닝
-
-2. 타깃 검색 패턴
-   이 카테고리 잠재 고객이 네이버에서 실제로 검색할 키워드 유형과 의도
-
-3. 단계별 핵심 키워드 유형
-   인지 → 비교탐색 → 구매/가입 직전 단계별 검색어 패턴
-
-4. 경쟁 차별화 키워드 기회
-   경쟁사({competitors_str}) 대비 {brand}가 강점 어필 가능한 키워드 영역
-
-5. 고효율 틈새 키워드
-   일반적으로 간과되지만 이 카테고리에서 전환율 높은 구체적 키워드 유형
-
-6. 제외 권장 패턴
-   노출은 되지만 이 카테고리에서 전환이 거의 없는 키워드 유형"""
+아래 항목을 각 2~3줄로 간결하게 작성 (총 400자 이내):
+1. 브랜드 현황: {brand} 핵심 서비스/포지셔닝
+2. 검색 패턴: 잠재 고객이 실제 검색할 키워드 유형
+3. 차별화 기회: 경쟁사 대비 강점 키워드 영역
+4. 제외 패턴: 전환율 낮은 키워드 유형"""
 
     try:
         memo = _call_llm_with_web_search(
             system=(
                 "당신은 10년 경력의 네이버 파워링크 검색광고 전략 컨설턴트입니다. "
-                "웹 검색 도구를 적극 활용해 브랜드의 실제 최신 정보를 수집하고, "
-                "그 정보를 바탕으로 실무에 바로 활용할 수 있는 구체적인 키워드 전략 인사이트를 제공합니다. "
+                "웹 검색 도구를 활용해 브랜드의 최신 정보를 수집하고 키워드 전략 인사이트를 제공합니다. "
                 "마크다운 없이 일반 텍스트로만 응답합니다."
             ),
             user=prompt,
-            max_tokens=2000,
+            max_tokens=1200,
         )
         memo = memo.strip()
         if memo:
