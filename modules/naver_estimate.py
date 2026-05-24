@@ -107,19 +107,18 @@ def _get_curve(keyword: str, device: str,
     """
     커브 반환 [{bid, impressions, clicks, cost}, ...] (캐시 포함)
     device: "PC" or "MOBILE"
-    keywordplus=True: 확장검색(ADVoost 서치) 포함 성과 추정 (기본값)
+    keywordplus=True: 확장검색 포함 / keywordplus=False: 정확검색 (네이버 키워드 도구 기준)
+    keywordplus 명시 전달 필수 — 생략 시 API 기본값은 broad-match(과대추정)
     """
     api_kw = _normalize(keyword)
-    # keywordplus 여부를 캐시 키에 포함 (True/False별 다른 데이터)
-    suffix = f"{device}_curve" + ("_kp" if keywordplus else "")
+    # v2: keywordplus=False 시에도 명시적으로 false 전달 — API no-field 기본값이 broad-match임을 확인
+    suffix = f"{device}_curve" + ("_kp" if keywordplus else "_v2")
     path = _cache_path(api_kw, suffix)
     cached = _load_cache(path)
     if cached is not None:
         return cached  # 캐시 히트: sleep 불필요
 
-    payload = {"device": device, "key": api_kw, "bids": SCAN_BIDS}
-    if keywordplus:
-        payload["keywordplus"] = True
+    payload = {"device": device, "key": api_kw, "bids": SCAN_BIDS, "keywordplus": keywordplus}
 
     result = _post(
         "/estimate/performance/keyword",
@@ -272,7 +271,7 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
         if missing_bids:
             extra = _post(
                 "/estimate/performance/keyword",
-                {"device": api_device, "key": api_kw, "bids": missing_bids},
+                {"device": api_device, "key": api_kw, "bids": missing_bids, "keywordplus": False},
                 api_key, secret, customer_id
             )
             if extra:
@@ -284,8 +283,8 @@ def get_rank_based_estimates(keyword: str, api_key: str, secret: str, customer_i
                         "cost":        int(e.get("cost", 0)),
                     })
                 curve.sort(key=lambda x: x["bid"])
-                # 보강된 커브를 캐시에 저장 (다음 실행 시 재호출 방지)
-                _save_cache(_cache_path(api_kw, f"{api_device}_curve"), curve)
+                # 보강된 커브를 캐시에 저장 (다음 실행 시 재호출 방지) — _v2 suffix 유지
+                _save_cache(_cache_path(api_kw, f"{api_device}_curve_v2"), curve)
 
         curve_map = {e["bid"]: e for e in curve}
 
@@ -326,7 +325,7 @@ def get_rank_based_estimates_cached(keyword: str, api_key: str, secret: str, cus
     """순위별 Estimate 결과 (결과 캐시 포함).
     cache key suffix _v4: target_rank 성과 데이터 일관성 수정 반영.
     """
-    path = _cache_path(_normalize(keyword), "rank_estimates_v4")
+    path = _cache_path(_normalize(keyword), "rank_estimates_v5")
     cached = _load_cache(path, cache_days)
     if cached is not None:
         return cached
