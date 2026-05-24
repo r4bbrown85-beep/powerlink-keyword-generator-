@@ -896,16 +896,25 @@ if _gen_btn and not st.session_state.get("_gen_pending"):
 
 # AI 캐시 관리
 with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
-    from modules.ai_keyword_generator import list_ai_cached_brands, clear_ai_cache_for_brand, clear_all_ai_cache
+    from modules.ai_keyword_generator import list_ai_cached_brands, clear_ai_cache_for_brand, clear_all_ai_cache, _AI_CACHE_VERSION as _CURRENT_CACHE_VER
     cached_brands = list_ai_cached_brands()
+    stale_count = sum(1 for cb in cached_brands if cb.get("is_stale"))
     if not cached_brands:
         st.caption("저장된 AI 키워드 캐시 없음")
     else:
-        st.caption(f"캐시된 브랜드 {len(cached_brands)}개 — 브랜드 정보·경쟁사가 바뀌었거나 AI 개선 후 최신 결과를 원할 때 삭제하세요.")
+        _caption = f"캐시된 브랜드 {len(cached_brands)}개 — 브랜드 정보·경쟁사가 바뀌었거나 AI 개선 후 최신 결과를 원할 때 삭제하세요."
+        if stale_count:
+            _caption += f"  ⚠️ 구버전 캐시 {stale_count}개 (현재 {_CURRENT_CACHE_VER}) — 재생성 권장"
+        st.caption(_caption)
         for cb in cached_brands:
             col1, col2 = st.columns([4, 1])
             with col1:
-                st.markdown(f"**{cb['brand_name']}**  <span style='color:gray;font-size:0.85em'>{cb['cached_at']}  파일 {cb['files']}개</span>", unsafe_allow_html=True)
+                _ver_badge = f"  <span style='color:#d97706;font-size:0.8em'>[구버전 {cb.get('cache_ver','?')}]</span>" if cb.get("is_stale") else ""
+                st.markdown(
+                    f"**{cb['brand_name']}**{_ver_badge}  "
+                    f"<span style='color:gray;font-size:0.85em'>{cb['cached_at']}  파일 {cb['files']}개</span>",
+                    unsafe_allow_html=True
+                )
             with col2:
                 if st.button("삭제", key=f"_cache_del_{cb['brand_name']}"):
                     n = clear_ai_cache_for_brand(cb["brand_name"])

@@ -283,6 +283,8 @@ _NEGATIVE_INTENT_PATTERNS = [
 # AI 키워드 캐시 설정
 _AI_CACHE_DIR  = Path("data/cache/ai_keywords")
 _AI_CACHE_DAYS = 7
+# 프롬프트·필터 로직 변경 시 이 값을 올리면 기존 캐시가 자동 무효화됨
+_AI_CACHE_VERSION = "v2"
 
 
 def _get_ai_cache_key(profile: dict) -> str:
@@ -291,6 +293,7 @@ def _get_ai_cache_key(profile: dict) -> str:
         "category":   profile.get("category", ""),
         "products":   sorted(profile.get("products", [])),
         "competitors": sorted(profile.get("competitors", [])),
+        "_v":          _AI_CACHE_VERSION,
     }
     key_str  = json.dumps(key_fields, ensure_ascii=False, sort_keys=True)
     key_hash = hashlib.md5(key_str.encode()).hexdigest()[:12]
@@ -323,6 +326,7 @@ def _save_ai_cache(cache_key: str, brand_name: str, data: dict):
             json.dump({
                 "brand_name": brand_name,
                 "cached_at":  datetime.now().isoformat(),
+                "cache_ver":  _AI_CACHE_VERSION,
                 "data":       data,
             }, f, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -357,7 +361,7 @@ def clear_all_ai_cache() -> int:
 
 
 def list_ai_cached_brands() -> list[dict]:
-    """캐시된 브랜드 목록 반환 [{brand_name, cached_at, files}]."""
+    """캐시된 브랜드 목록 반환 [{brand_name, cached_at, files, cache_ver, is_stale}]."""
     _AI_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     brands: dict[str, dict] = {}
     for f in sorted(_AI_CACHE_DIR.glob("*.json")):
@@ -365,8 +369,15 @@ def list_ai_cached_brands() -> list[dict]:
             import json as _json
             data = _json.loads(f.read_text(encoding="utf-8"))
             bname = data.get("brand_name", "?")
+            ver   = data.get("cache_ver", "v1")
             if bname not in brands:
-                brands[bname] = {"brand_name": bname, "cached_at": data.get("cached_at", "")[:16], "files": 0}
+                brands[bname] = {
+                    "brand_name": bname,
+                    "cached_at":  data.get("cached_at", "")[:16],
+                    "files":      0,
+                    "cache_ver":  ver,
+                    "is_stale":   ver != _AI_CACHE_VERSION,
+                }
             brands[bname]["files"] += 1
         except Exception:
             pass
