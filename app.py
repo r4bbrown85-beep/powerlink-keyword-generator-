@@ -884,6 +884,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+_status_area = st.empty()  # 버튼 바로 위에 위치 — 생성 시작 시 이 위치에 상태 표시
+
 if not st.session_state.brand_results:
     _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True)
 else:
@@ -964,8 +966,11 @@ if st.session_state.get("_gen_pending"):
     brand_configs = st.session_state.get("_gen_brand_configs", [])
     goal_str      = st.session_state.get("_gen_goal_str", "")
     if not client_name or not brand_configs:
-        st.error("생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요.")
+        _status_area.error("생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요.")
         st.stop()
+
+    # 버튼 위치에 즉시 진행 상태 표시 (스크롤 없이 보임)
+    _status_area.warning("⏳ 제안서를 생성하고 있습니다... 수 분 소요됩니다. 페이지를 닫거나 새로고침하지 마세요.")
 
     client_profile = {
         "client":           client_name,
@@ -1067,11 +1072,11 @@ if st.session_state.get("_gen_pending"):
             len([r for r in res["recommended"] if not r.get("not_selected")])
             for res in brand_results
         )
-        st.success(f"제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
+        _status_area.success(f"✅ 제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
         st.rerun()  # 결과 화면(SECTION 4)으로 깔끔하게 전환
 
     except Exception as e:
-        st.error(f"오류: {e}")
+        _status_area.error(f"오류: {e}")
         import traceback
         st.code(traceback.format_exc())
 
