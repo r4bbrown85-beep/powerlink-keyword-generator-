@@ -652,7 +652,7 @@ st.markdown("""
 
 col1, col2 = st.columns(2, gap="large")
 with col1:
-    client_name = st.text_input("광고주명 *", placeholder="예) LG전자")
+    client_name = st.text_input("광고주명 *", placeholder="예) LG전자", key="client_name_input")
     monthly_budget = st.number_input(
         "월 예산 (원) *",
         min_value=100_000, max_value=100_000_000,
@@ -673,16 +673,19 @@ with col2:
             "사전예약/사전등록", "런칭/서비스 오픈", "신작/개봉 홍보",
             "문의/상담 유도", "가입자수 확대", "무료체험 신청", "방문/예약 유도",
         ],
-        default=["구매전환"]
+        default=["구매전환"],
+        key="campaign_goals_input",
     )
     new_product_info = ""
     season_info = ""
     if "신제품 출시" in campaign_goals:
         new_product_info = st.text_input("신제품 정보",
-            placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시")
+            placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시",
+            key="new_product_input")
     if "시즌 프로모션" in campaign_goals:
         season_info = st.text_input("시즌/이슈 내용",
-            placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인")
+            placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인",
+            key="season_input")
 
 st.divider()
 
@@ -849,12 +852,12 @@ for i in range(len(st.session_state.brands)):
 
 ca, cb = st.columns(2)
 with ca:
-    if st.button("+ 브랜드 추가", use_container_width=True):
+    if st.button("+ 브랜드 추가", use_container_width=True, key="add_brand_btn"):
         st.session_state.brands.append({"monthly_budget": monthly_budget})
         st.rerun()
 with cb:
     if len(st.session_state.brands) > 1:
-        if st.button("마지막 브랜드 삭제", use_container_width=True):
+        if st.button("마지막 브랜드 삭제", use_container_width=True, key="del_brand_btn"):
             st.session_state.brands.pop()
             st.rerun()
 
@@ -887,10 +890,10 @@ st.markdown("""
 _status_area = st.empty()  # 버튼 바로 위에 위치 — 생성 시작 시 이 위치에 상태 표시
 
 if not st.session_state.brand_results:
-    _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True)
+    _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True, key="gen_btn_initial")
 else:
     st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
-    _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
+    _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True, key="gen_btn_regen")
 
 
 # AI 캐시 관리
@@ -920,7 +923,7 @@ with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
                     st.success(f"삭제 완료 ({n}개)")
                     st.rerun()
     if cached_brands:
-        if st.button("전체 캐시 삭제", type="secondary"):
+        if st.button("전체 캐시 삭제", type="secondary", key="clear_all_cache_btn"):
             n = clear_all_ai_cache()
             st.success(f"전체 삭제 완료 ({n}개)")
             st.rerun()
@@ -962,9 +965,16 @@ if _gen_btn:
 
 if st.session_state.get("_gen_pending"):
     st.session_state._gen_pending = False
-    client_name   = st.session_state.get("_gen_client_name", "")
-    brand_configs = st.session_state.get("_gen_brand_configs", [])
-    goal_str      = st.session_state.get("_gen_goal_str", "")
+    # Normal button path: stored values override local widget reads
+    # Fragment rerun path: stored values are empty → keep local widget reads
+    _stored_cn = st.session_state.get("_gen_client_name", "")
+    _stored_bc = st.session_state.get("_gen_brand_configs", [])
+    _stored_gs = st.session_state.get("_gen_goal_str", "")
+    if _stored_cn:
+        client_name = _stored_cn
+    if _stored_bc:
+        brand_configs = _stored_bc
+    goal_str = _stored_gs or ", ".join(campaign_goals)
     if not client_name or not brand_configs:
         _status_area.error("생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요.")
         st.stop()
@@ -1180,6 +1190,8 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
                 except ValueError:
                     pass
         st.session_state.custom_rank_kws[bname] = _rank_ov
+        # Ensure client_name is available for _gen_pending block (fragment has no direct access to widget locals)
+        st.session_state._gen_client_name = st.session_state.get("client_name", "")
         st.session_state._gen_pending = True
         st.rerun(scope="app")
 
