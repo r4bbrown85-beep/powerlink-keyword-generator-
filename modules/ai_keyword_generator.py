@@ -530,11 +530,14 @@ def generate_sa_strategy_memo(profile: dict) -> str:
             max_tokens=2000,
         )
         memo = memo.strip()
-        _save_ai_cache(cache_key, brand, {"memo": memo})
-        print(f"    [SA전략메모] 생성 완료 ({len(memo)}자)")
+        if memo:
+            _save_ai_cache(cache_key, brand, {"memo": memo})
+            print(f"    [SA전략메모] 생성 완료 ({len(memo)}자)")
+        else:
+            print(f"    [SA전략메모] 빈 결과 반환 — 캐시 미저장 (다음 실행 시 재시도)")
         return memo
     except Exception as e:
-        print(f"    [SA전략메모] 생성 실패 (건너뜀): {e}")
+        print(f"    [SA전략메모] 생성 실패: {type(e).__name__}: {e}")
         return ""
 
 
