@@ -890,6 +890,10 @@ else:
     st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
     _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
 
+# 버튼 클릭 직후 ~ 생성 실행 전 사이: 화면 상단에 즉시 피드백 (Streamlit rerun 지연 보완)
+if _gen_btn and not st.session_state.get("_gen_pending"):
+    st.info("⏳ 입력 값 확인 중... 잠시 후 생성이 시작됩니다.")
+
 # AI 캐시 관리
 with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
     from modules.ai_keyword_generator import list_ai_cached_brands, clear_ai_cache_for_brand, clear_all_ai_cache
@@ -937,9 +941,12 @@ if _gen_btn:
 
 if st.session_state.get("_gen_pending"):
     st.session_state._gen_pending = False
-    client_name   = st.session_state._gen_client_name
-    brand_configs = st.session_state._gen_brand_configs
-    goal_str      = st.session_state._gen_goal_str
+    client_name   = st.session_state.get("_gen_client_name", "")
+    brand_configs = st.session_state.get("_gen_brand_configs", [])
+    goal_str      = st.session_state.get("_gen_goal_str", "")
+    if not client_name or not brand_configs:
+        st.error("생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요.")
+        st.stop()
 
     client_profile = {
         "client":           client_name,

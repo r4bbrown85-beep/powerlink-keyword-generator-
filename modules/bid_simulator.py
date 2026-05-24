@@ -898,9 +898,9 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     # 3-2-b: rank2 업그레이드 후에도 예산 활용률이 낮으면 rank1 업그레이드 추가 허용
     # min_rank 필터로 rank1이 item["options"]에서 제외됐더라도,
     # _full_rank_opts_cache(cap 이전 전체 순위)를 활용해 rank1까지 업그레이드 허용
-    # 조건: 예산 활용률 < 65% + 단일 키워드 rank1 비용 <= 총 예산의 30%
+    # 조건: 예산 활용률 < 75% + 단일 키워드 rank1 비용 <= 총 예산의 30%
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    if accumulated < total_budget * 0.65:
+    if accumulated < total_budget * 0.75:
         rank1_fill_candidates = sorted(
             [(kw, opt) for kw, opt in selected_map.items()
              if not opt.get("is_fallback", False)
@@ -927,7 +927,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                 and _real_cost(o) <= per_kw_cap
                 and _real_cost(o) - cur_cost <= remaining_now
                 and _real_cost(o) - cur_cost > 0
-                and o.get("weighted_score", 0.0) - cur_score > 0
+                # 예산 채우기 단계: 효율 조건 제거 — 순위 업그레이드가 목적
             ]
             if not better_opts:
                 continue
@@ -940,9 +940,9 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             selected_map[kw] = best_up
         accumulated = sum(_real_cost(v) for v in selected_map.values())
 
-    # 3-3: 여전히 예산이 많이 남으면 추가 키워드 선택 (Fallback 제외)
+    # 3-3: 여전히 예산이 남으면 추가 키워드 선택 (Fallback 제외)
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    if accumulated < total_budget * 0.50:
+    if accumulated < total_budget * 0.65:
         # 예산 50% 미만 소진이면 active 키워드를 더 적극 배정
         remaining_active = [r for r in active_records
                             if r["keyword"] not in selected_map]

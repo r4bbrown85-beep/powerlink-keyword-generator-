@@ -46,7 +46,7 @@ def _call_llm(system: str, user: str, temperature: float = 0.2, max_tokens: int 
 
 def _call_llm_with_web_search(system: str, user: str, max_tokens: int = 2000) -> str:
     """Claude API + web_search_20250305 도구로 실시간 웹 검색 후 응답 생성.
-    ANTHROPIC_API_KEY 없으면 일반 _call_llm으로 폴백."""
+    ANTHROPIC_API_KEY 없거나 웹검색 도구 미지원 시 일반 _call_llm으로 폴백."""
     anthropic_key = os.getenv("ANTHROPIC_API_KEY")
     if not anthropic_key:
         return _call_llm(system, user, max_tokens=max_tokens)
@@ -56,31 +56,37 @@ def _call_llm_with_web_search(system: str, user: str, max_tokens: int = 2000) ->
     messages = [{"role": "user", "content": user}]
     last_resp = None
 
-    for _ in range(10):
-        last_resp = c.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
-            timeout=120,
-        )
+    try:
+        for _ in range(10):
+            last_resp = c.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,
+                tools=[{"type": "web_search_20250305", "name": "web_search"}],
+                timeout=120,
+            )
 
-        if last_resp.stop_reason == "end_turn":
+            if last_resp.stop_reason == "end_turn":
+                return "".join(b.text for b in last_resp.content if hasattr(b, "text"))
+
+            if last_resp.stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": last_resp.content})
+                tool_results = [
+                    {"type": "tool_result", "tool_use_id": b.id, "content": ""}
+                    for b in last_resp.content if b.type == "tool_use"
+                ]
+                messages.append({"role": "user", "content": tool_results})
+            else:
+                break
+
+        if last_resp:
             return "".join(b.text for b in last_resp.content if hasattr(b, "text"))
+    except Exception as web_err:
+        print(f"    [웹검색] 도구 사용 불가 ({type(web_err).__name__}): {web_err}")
+        print(f"    [웹검색] 일반 LLM 호출로 폴백 (웹검색 없이 생성)...")
+        return _call_llm(system, user, max_tokens=max_tokens)
 
-        if last_resp.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": last_resp.content})
-            tool_results = [
-                {"type": "tool_result", "tool_use_id": b.id, "content": ""}
-                for b in last_resp.content if b.type == "tool_use"
-            ]
-            messages.append({"role": "user", "content": tool_results})
-        else:
-            break
-
-    if last_resp:
-        return "".join(b.text for b in last_resp.content if hasattr(b, "text"))
     return ""
 
 
@@ -657,10 +663,12 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 
 ━━━ 4개 광고 그룹 ━━━
 
-[브랜드 키워드] 20~30개
+[브랜드 키워드] 10~15개
 {brand}를 이미 알고 직접 검색하는 구매 의향 사용자 대상
-→ {brand} + {category}/추천/가격/후기/구매/할인/비교
+→ {brand} + {category}/추천/가격/후기/구매/할인/비교 (실제 검색되는 조합만)
 → {korean_str} + 동일 조합
+→ 절대 금지: 브랜드명+무관 단어 임의 조합 (예: 브랜드명+food, +farm, +글로벌 등 실존하지 않는 조합)
+→ 실제 서비스/제품명으로 확인되지 않는 브랜드 변형어는 생성 금지
 → 제외: 주가·채용·공채·지역매장·{brand}의 다른 제품군
 
 [상품 키워드] 40~60개  ← 가장 중요, 반드시 충분히 생성
