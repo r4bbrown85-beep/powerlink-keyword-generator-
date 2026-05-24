@@ -887,7 +887,19 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-_status_area = st.empty()  # 버튼 바로 위에 위치 — 생성 시작 시 이 위치에 상태 표시
+_status_area = st.empty()
+
+# session_state 기반으로 status 렌더 — 연결 끊김/재접속 후에도 올바른 상태 표시
+# (st.empty() 자체 content는 재접속 후 stale 상태가 남을 수 있으므로 항상 session_state에서 복원)
+_ui_status = st.session_state.get("_ui_status", "")
+_ui_msg    = st.session_state.get("_ui_msg", "")
+if _ui_status == "success":
+    _status_area.success(_ui_msg)
+elif _ui_status == "generating":
+    _status_area.warning(_ui_msg)
+elif _ui_status == "error":
+    _status_area.error(_ui_msg)
+# else: 비어 있음 (idle)
 
 if not st.session_state.brand_results:
     _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True, key="gen_btn_initial")
@@ -961,7 +973,9 @@ if _gen_btn:
             + (f" | 시즌: {season_info}" if season_info else "")
         )
         st.session_state._gen_pending = True
-        # st.rerun() 없이 바로 _gen_pending 블록으로 진입 — 중간 플래시 제거
+        st.session_state._ui_status   = "generating"
+        st.session_state._ui_msg      = "⏳ 제안서를 생성하고 있습니다... 수 분 소요됩니다. 페이지를 닫거나 새로고침하지 마세요."
+        st.rerun()  # 명시적 rerun — 버튼 클릭 렌더와 생성 렌더 분리
 
 if st.session_state.get("_gen_pending"):
     st.session_state._gen_pending = False
@@ -976,11 +990,13 @@ if st.session_state.get("_gen_pending"):
         brand_configs = _stored_bc
     goal_str = _stored_gs or ", ".join(campaign_goals)
     if not client_name or not brand_configs:
-        _status_area.error("생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요.")
-        st.stop()
+        st.session_state._ui_status = "error"
+        st.session_state._ui_msg    = "생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요."
+        st.session_state._gen_pending = False
+        st.rerun()
 
-    # 버튼 위치에 즉시 진행 상태 표시 (스크롤 없이 보임)
-    _status_area.warning("⏳ 제안서를 생성하고 있습니다... 수 분 소요됩니다. 페이지를 닫거나 새로고침하지 마세요.")
+    # _ui_status = "generating" 이 이미 session_state에 설정되어 있으므로
+    # 상단 status 렌더링 블록이 warning을 표시 중 — 별도 warning 호출 불필요
 
     client_profile = {
         "client":           client_name,
@@ -1082,12 +1098,17 @@ if st.session_state.get("_gen_pending"):
             len([r for r in res["recommended"] if not r.get("not_selected")])
             for res in brand_results
         )
-        _status_area.success(f"✅ 제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개")
+        _success_msg = f"✅ 제안서 생성 완료 — {len(brand_results)}개 브랜드 · 추천 키워드 {n_kw}개"
+        st.session_state._ui_status = "success"
+        st.session_state._ui_msg    = _success_msg
         st.rerun()  # 결과 화면(SECTION 4)으로 깔끔하게 전환
 
     except Exception as e:
-        _status_area.error(f"오류: {e}")
         import traceback
+        _err_msg = f"오류: {e}"
+        st.session_state._ui_status = "error"
+        st.session_state._ui_msg    = _err_msg
+        _status_area.error(_err_msg)
         st.code(traceback.format_exc())
 
 # ─────────────────────────────────────────────────────────────────
@@ -1192,7 +1213,9 @@ def _kw_editor_fragment(bname, all_rows, active_count, standby_count):
         st.session_state.custom_rank_kws[bname] = _rank_ov
         # Ensure client_name is available for _gen_pending block (fragment has no direct access to widget locals)
         st.session_state._gen_client_name = st.session_state.get("client_name", "")
-        st.session_state._gen_pending = True
+        st.session_state._gen_pending  = True
+        st.session_state._ui_status    = "generating"
+        st.session_state._ui_msg       = "⏳ 제안서를 생성하고 있습니다... 수 분 소요됩니다. 페이지를 닫거나 새로고침하지 마세요."
         st.rerun(scope="app")
 
 
