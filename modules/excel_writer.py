@@ -914,8 +914,9 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
     # 설명 박스
     ws.merge_cells(f"B{row}:L{row}")
     _write_cell(ws, row, 2,
-                "선별된 전체 키워드를 예산 제한 없이 최적 순위로 집행할 경우의 예상 성과입니다. "
-                "이 금액이 이 캠페인의 최대 집행 가능 예산입니다. SA를 처음 시작하거나 최대 효율을 원하는 경우 참고하세요.",
+                "선별된 전체 키워드를 예산 제한 없이 최적 순위(입찰가 업그레이드 포함)로 집행할 경우의 예상 성과입니다. "
+                "현재 제안 예산과 무관하게 이 캠페인에서 얻을 수 있는 최대 효율 기준 총비용입니다. "
+                "SA를 처음 시작하거나 예산 확대를 검토할 때 참고하세요.",
                 font_size=10, font_color="475569", align_h="left")
     row += 2
 
@@ -1007,6 +1008,7 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
     row += 2
     ws.merge_cells(f"B{row}:L{row}")
     _write_cell(ws, row, 2,
-                f"* 이 제안서를 전체 집행하려면 월 약 {total_cost:,}원의 예산이 필요합니다. "
-                "* 표시 키워드는 검색량이 적어 네이버 예측 데이터가 제공되지 않습니다(카테고리 평균 기준 입찰가 제안).",
+                f"* 이 제안서 전체를 최적 순위로 집행하려면 월 약 {total_cost:,}원의 예산이 필요합니다. "
+                "* 표시 키워드는 검색량이 적어 네이버 예측 데이터가 제공되지 않습니다(카테고리 평균 기준 입찰가 제안). "
+                "입찰가 업그레이드 가능 키워드는 확장 효율이 높은 bid로 자동 반영됩니다.",
                 font_size=9, font_color="888888", align_h="left")

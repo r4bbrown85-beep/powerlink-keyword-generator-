@@ -1507,7 +1507,7 @@ def simulate_scenarios(current_rows, not_selected_rows, base_budget, all_options
     }
 
 
-def simulate_unconstrained_optimal(current_rows, not_sel_rows):
+def simulate_unconstrained_optimal(current_rows, not_sel_rows, bid_up_rows=None):
     """
     예산 제한 없는 최적 효율 제안 시뮬레이션.
 
@@ -1516,6 +1516,10 @@ def simulate_unconstrained_optimal(current_rows, not_sel_rows):
       Tier 1 — 브랜드·핵심(score≥70)  : 목표순위 2위
       Tier 2 — 일반 중요도(score 50~70): 목표순위 4위
       Tier 3 — 보조 키워드(score<50)   : 목표순위 6위
+
+    bid_up_rows: simulate_scenarios에서 계산된 입찰가 업그레이드 데이터.
+      전달 시 current_rows 중 업그레이드 가능 키워드의 성과를 재계산 없이 반영.
+      추가 API 호출 불필요.
 
     반환:
       {
@@ -1535,6 +1539,9 @@ def simulate_unconstrained_optimal(current_rows, not_sel_rows):
     cat_map = _get_cat_map()
     optimal_rows = []
 
+    # bid_up_rows → keyword 기준 lookup (추가 API 호출 없이 업그레이드 성과 반영용)
+    bid_up_lookup = {bur["keyword"]: bur for bur in (bid_up_rows or []) if bur.get("keyword")}
+
     def _tier(row):
         kw_type = str(row.get("keyword_type", "GENERIC")).upper()
         score   = row.get("recommendation_score", 50) or 50
@@ -1545,28 +1552,59 @@ def simulate_unconstrained_optimal(current_rows, not_sel_rows):
         else:
             return 3, 6
 
-    # 1. 현재 제안에 이미 있는 키워드 — 기존 최적 bid 그대로 사용
+    # 1. 현재 제안 키워드 — bid_up_rows 있으면 업그레이드된 성과 반영, 없으면 기존 그대로
     for row in current_rows:
         tier_num, _ = _tier(row)
-        optimal_rows.append({
-            "keyword":              row.get("keyword", ""),
-            "category":             row.get("category", "일반 키워드"),
-            "keyword_type":         row.get("keyword_type", "GENERIC"),
-            "recommendation_score": row.get("recommendation_score", 50),
-            "tier":                 tier_num,
-            "proposed_bid_pc":      row.get("proposed_bid_pc") or row.get("proposed_bid", 0),
-            "proposed_bid_mo":      row.get("proposed_bid_mo") or row.get("proposed_bid", 0),
-            "pc_impressions":       row.get("pc_sim_impressions", 0) or 0,
-            "mo_impressions":       row.get("mo_sim_impressions", 0) or 0,
-            "pc_clicks":            row.get("pc_sim_clicks", 0) or 0,
-            "mo_clicks":            row.get("mo_sim_clicks", 0) or 0,
-            "pc_cost":              row.get("pc_sim_cost", 0) or 0,
-            "mo_cost":              row.get("mo_sim_cost", 0) or 0,
-            "proposed_rank_pc":     row.get("proposed_rank_pc", "-"),
-            "proposed_rank_mo":     row.get("proposed_rank_mo", "-"),
-            "is_fallback":          row.get("is_fallback", False),
-            "source":               "current",
-        })
+        kw  = row.get("keyword", "")
+        bur = bid_up_lookup.get(kw)
+
+        base_pc_clicks = row.get("pc_sim_clicks", 0) or 0
+        base_mo_clicks = row.get("mo_sim_clicks", 0) or 0
+        base_pc_cost   = row.get("pc_sim_cost", 0) or 0
+        base_mo_cost   = row.get("mo_sim_cost", 0) or 0
+
+        if bur and not row.get("is_fallback", False):
+            # 입찰가 업그레이드 반영: 현재 성과 + 추가 성과
+            optimal_rows.append({
+                "keyword":              kw,
+                "category":             row.get("category", "일반 키워드"),
+                "keyword_type":         row.get("keyword_type", "GENERIC"),
+                "recommendation_score": row.get("recommendation_score", 50),
+                "tier":                 tier_num,
+                "proposed_bid_pc":      bur.get("pc_bid") or row.get("proposed_bid_pc") or row.get("proposed_bid", 0),
+                "proposed_bid_mo":      bur.get("mo_bid") or row.get("proposed_bid_mo") or row.get("proposed_bid", 0),
+                "pc_impressions":       row.get("pc_sim_impressions", 0) or 0,
+                "mo_impressions":       row.get("mo_sim_impressions", 0) or 0,
+                "pc_clicks":            base_pc_clicks + (bur.get("add_pc_clicks", 0) or 0),
+                "mo_clicks":            base_mo_clicks + (bur.get("add_mo_clicks", 0) or 0),
+                "pc_cost":              base_pc_cost + (bur.get("add_pc_cost", 0) or 0),
+                "mo_cost":              base_mo_cost + (bur.get("add_mo_cost", 0) or 0),
+                "proposed_rank_pc":     bur.get("rank_pc", row.get("proposed_rank_pc", "-")),
+                "proposed_rank_mo":     bur.get("rank_mo", row.get("proposed_rank_mo", "-")),
+                "is_fallback":          False,
+                "source":               "current_upgraded",
+            })
+        else:
+            # 업그레이드 없음 (is_fallback이거나 이미 최적)
+            optimal_rows.append({
+                "keyword":              kw,
+                "category":             row.get("category", "일반 키워드"),
+                "keyword_type":         row.get("keyword_type", "GENERIC"),
+                "recommendation_score": row.get("recommendation_score", 50),
+                "tier":                 tier_num,
+                "proposed_bid_pc":      row.get("proposed_bid_pc") or row.get("proposed_bid", 0),
+                "proposed_bid_mo":      row.get("proposed_bid_mo") or row.get("proposed_bid", 0),
+                "pc_impressions":       row.get("pc_sim_impressions", 0) or 0,
+                "mo_impressions":       row.get("mo_sim_impressions", 0) or 0,
+                "pc_clicks":            base_pc_clicks,
+                "mo_clicks":            base_mo_clicks,
+                "pc_cost":              base_pc_cost,
+                "mo_cost":              base_mo_cost,
+                "proposed_rank_pc":     row.get("proposed_rank_pc", "-"),
+                "proposed_rank_mo":     row.get("proposed_rank_mo", "-"),
+                "is_fallback":          row.get("is_fallback", False),
+                "source":               "current",
+            })
 
     # 2. 예산 부족으로 제외된 키워드 — 우선순위 기반 목표순위로 재계산
     skipped = 0

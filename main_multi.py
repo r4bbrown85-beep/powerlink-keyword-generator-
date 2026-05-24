@@ -999,8 +999,10 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
                                        total_budget, all_options_map)
 
     # 예산 무제한 최적 효율 제안 시뮬레이션
+    # bid_up_rows 전달 → 추가 API 호출 없이 업그레이드된 성과 반영
     try:
-        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows)
+        _bid_up_rows = scenario_data.get("bid_up_rows", []) if scenario_data else []
+        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows, bid_up_rows=_bid_up_rows)
     except Exception as _e:
         print(f"  [최적효율] 시뮬레이션 실패 (무시): {_e}")
         optimal_data = None
@@ -1111,7 +1113,8 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
                                        budget, all_options_map)
 
     try:
-        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows)
+        _bid_up_rows = scenario_data.get("bid_up_rows", []) if scenario_data else []
+        optimal_data = simulate_unconstrained_optimal(current_rows, not_sel_rows, bid_up_rows=_bid_up_rows)
     except Exception as _e:
         print(f"  [시뮬레이터] 최적효율 계산 실패 (무시): {_e}")
         optimal_data = None

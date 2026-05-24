@@ -63,7 +63,7 @@ def _call_llm_with_web_search(system: str, user: str, max_tokens: int = 2000) ->
         return _call_llm(system, user, max_tokens=max_tokens)
 
     import anthropic as _anthropic
-    c = _anthropic.Anthropic(api_key=anthropic_key)
+    c = _anthropic.Anthropic(api_key=anthropic_key, max_retries=0)
     messages = [{"role": "user", "content": user}]
     last_resp = None
 
