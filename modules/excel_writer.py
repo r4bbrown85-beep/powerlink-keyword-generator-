@@ -312,7 +312,8 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
             already_reg  = kw_row.get("already_registered", False)
             actual_rank  = kw_row.get("actual_avg_rank", 0)
             if fb:
-                note = "입찰가제안"
+                _fb_rank = kw_row.get("proposed_rank_pc") or kw_row.get("proposed_rank", "")
+                note = f"입찰가제안·{_fb_rank}위추정" if _fb_rank else "입찰가제안"
             elif not_selected:
                 note = "예산외"
             elif already_reg and actual_rank > 0:

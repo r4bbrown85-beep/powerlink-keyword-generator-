@@ -814,7 +814,11 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
                 row["proposed_bid"]    = fallback_pc_bid
                 row["proposed_bid_pc"] = fallback_pc_bid
                 row["proposed_bid_mo"] = fallback_mo_bid
-                row["proposed_rank"] = row["proposed_rank_pc"] = row["proposed_rank_mo"] = ""
+                # bid_simulator가 계산한 추정 순위 사용 (브랜드=1위, 일반=카테고리 목표순위)
+                _est_rank = sim.get("rank", "")
+                row["proposed_rank"]    = _est_rank
+                row["proposed_rank_pc"] = sim.get("rank_pc", _est_rank)
+                row["proposed_rank_mo"] = sim.get("rank_mo", _est_rank)
                 for f in ["sim_impressions","sim_ctr","sim_clicks","sim_cpc","sim_cost","anchor_bid",
                           "pc_sim_impressions","pc_sim_ctr","pc_sim_clicks","pc_sim_cpc","pc_sim_cost",
                           "mo_sim_impressions","mo_sim_ctr","mo_sim_clicks","mo_sim_cpc","mo_sim_cost"]:
