@@ -97,8 +97,9 @@ def _fetch_stats(ids: list, fields: list, breakdown: str,
             "ids":       ",".join(batch),
             "fields":    json.dumps(fields),      # API requires JSON array
             "timeRange": json.dumps({"since": since, "until": until}),
-            "breakdown": breakdown,
         }
+        if breakdown:
+            params["breakdown"] = breakdown
         result = _get("/stats", params, creds)
         if not result:
             continue
@@ -140,7 +141,7 @@ def get_campaign_stats(creds, days: int = 7) -> list:
     rows = _fetch_stats(
         all_agids,
         ["impCnt", "clkCnt", "salesAmt", "ctr", "avgCpc"],
-        "adGroup", since, until, creds
+        "", since, until, creds          # 시간 breakdown 없음 = 기간 합계
     )
 
     # campaign 기준으로 집계
