@@ -1,0 +1,310 @@
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+from pathlib import Path
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+import gspread
+
+TOKEN_PATH = Path('config/oauth_token.json')
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets','https://www.googleapis.com/auth/drive']
+creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+if creds.expired and creds.refresh_token:
+    creds.refresh(Request())
+
+service = build('sheets', 'v4', credentials=creds)
+gc = gspread.authorize(creds)
+
+DST_ID = '1jwynjel06dgzjE-X6tAMJbWuGSKGmZ_kPodMt6cfj2E'
+SRC_ID = '1F3jWEB8235zfL8dQlgjDIlHVpIhFCWi7s8z--PKoT6U'
+SRC_REVIEW_SID = 1609983932
+SRC_PLAN_SID   = 150274068
+
+sh = gc.open_by_key(DST_ID)
+
+# ── 기존 [B] 탭 삭제 후 새로 복사 ──────────────
+for ws in sh.worksheets():
+    if ws.title.startswith('[B]'):
+        sh.del_worksheet(ws)
+        print(f'삭제: {ws.title}')
+
+def copy_sheet(src_sid, new_title):
+    result = service.spreadsheets().sheets().copyTo(
+        spreadsheetId=SRC_ID, sheetId=src_sid,
+        body={'destinationSpreadsheetId': DST_ID}
+    ).execute()
+    new_sid = result['sheetId']
+    service.spreadsheets().batchUpdate(
+        spreadsheetId=DST_ID,
+        body={'requests': [{'updateSheetProperties': {
+            'properties': {'sheetId': new_sid, 'title': new_title},
+            'fields': 'title'
+        }}]}
+    ).execute()
+    print(f'복사: {new_title} (sheetId={new_sid})')
+    return new_sid
+
+SID_B_R = copy_sheet(SRC_REVIEW_SID, '[B] 채널2팀-상반기리뷰')
+SID_B_H = copy_sheet(SRC_PLAN_SID,   '[B] 채널2팀-하반기플랜')
+
+sh = gc.open_by_key(DST_ID)  # 새로고침
+ws_br = sh.worksheet('[B] 채널2팀-상반기리뷰')
+ws_bh = sh.worksheet('[B] 채널2팀-하반기플랜')
+
+# ══════════════════════════════════════════════
+# [B] 상반기 리뷰 — 동일 카테고리 구조 유지, CEO 보고서 데이터 통합
+# ══════════════════════════════════════════════
+# 카테고리 구조 (원본 폼 그대로):
+#   B6~B11  : 핵심 역할 6개 bullet
+#   B15~B17 : 네이버 3개 bullet
+#   B19~B21 : 메타 3개 bullet
+#   B23~B25 : 토스 3개 bullet
+#   B27~B29 : 기타(크리테오/당근/컬리) 3개 bullet
+#   B32~B39 : 담당자별 (이선애/김나은/박현)
+
+b_review = {
+    # ── 핵심 역할 ─────────────────────────────────────────
+    'B6':
+        ' • 메타·토스·네이버·당근·크리테오·컬리 등 주요 RTB 매체 공식 파트너사 단일 창구 역할; '
+        '나스미디어는 25년 네이버 DA 판매 1위(파트너사 전체 기준) · GFA 연간 YoY +5.5% 성장 · 프리미어 파트너사(25H2→26년 계속) 자격 유지',
+
+    'B7':
+        ' • [인센티브 실적] 25년 네이버 인센티브 총 4.65억 확보(매출 목표 프로모션 9월·11월 달성 + ADVoost 쇼핑 5,571만원 + 스크린 416만원) / '
+        '26년 ADVoost 쇼핑 추가 수수료 최대 2,000만원/월 달성 기록 / 파트너 부스트 2Q 타겟 340억 달성률 50.6%(가이던스 상회)',
+
+    'B8':
+        ' • [파트너십 성과] 메타 2025 Agency First Awards Game Changer 부문 수상(W컨셉 협력광고·세미나 공동 기획 성과) / '
+        '당근 25년 취급고 YoY +134.5%(자력 +45.4%) 급성장 / 메타 26년 1Q 취급고 YoY +13.7%(인보이스 +19.2%) 성장 가속',
+
+    'B9':
+        ' • [영업지원] 메타 POC 1차 창구(플래너 직커뮤니케이션 불가) · 신상품 공지 · 세일즈킷·이슈리포트 제작배포 / '
+        'SA 운영 광고주 26년 24→28개(+17%) · 제안서·컨설팅·온보딩 분기 수십 건 / 워크서포트 주당 30~63건 처리',
+
+    'B10':
+        ' • [신규 매출원] W컨셉 협력광고 49→83 브랜드 +69% 성장(25년 약 1.17억→26년 1Q 1.21억 YoY 성장) / '
+        '토스 세일즈커넥트 3명 참여·LOT 족보 제작 완료 / 메타 NOTE 플랫폼 스레드·협력광고·RTA 벤치마크 기능 고도화',
+
+    'B11':
+        ' • [계정·운영 인프라] 대대행사 14개사 등록 완료 / PA 퀵윈 프로그램 월별 신청 관리(5월 11건 확정) / '
+        'SA 리포트 자동화 솔루션(데이터킷 탑재·GFA API 연동 진행 중) / 네이버 Expert 프로그램 4개사 선정(금성침대·토리든·클라렌·KGM)',
+
+    # ── 네이버 ─────────────────────────────────────────────
+    'B15':
+        ' • [25년 연간] 네이버 취급고 1,419억(NOSP 932억+GFA 487억+SA 203억) / GFA YoY +5.5% 성장(NOSP -9% 방어) / '
+        '인센티브 4.65억 확보; [26년 1Q] 취급고 297억(YoY -24.7%—시장 전반 둔화 맥락) / SA 26년 1Q 25억(YoY -55%—테무 SA 이관 이전 기저 효과); '
+        '26년 ADVoost 수수료 최대 2,000만원/월·파트너 부스트 2Q 달성률 50.6%(가이던스 상회)',
+
+    'B16':
+        ' • NOSP 대형 광고주(삼성·넥슨·LG·샤넬) 의존도 높아 개별 이탈 시 매출 변동 민감 / '
+        'GFA API 전체 호출 네이버 측 확인 중(리포트 자동화 연동 대기) / '
+        '26년 SA 취급고 YoY -55%는 25년 테무 SA 전산이관 기저 효과이므로 실질 성장 추이 별도 모니터링 필요',
+
+    'B17':
+        ' • 나스미디어 SA 취급고(26년 1Q 688백만원) 중 테무 비중이 절반 이상(26년 1Q 테무SA 1,827백만원 vs 나스 688백만원 — 테무는 직영, 나스는 비-테무 SA) / '
+        '영업 조직 SA 이해도 편차 지속 → 복합 제안(DA+SA+ADVoost) 역량 공식 교육 체계 강화 필요',
+
+    # ── 메타 ─────────────────────────────────────────────
+    'B19':
+        ' • [25년] 자력 매출 YoY +6.7% 성장 / Agency First Game Changer 수상 / '
+        '광고 계정 수 연말 기준 348개(24년 288개 → +20.8%) / 협력광고 전체 취급고 YoY +351.8%(W컨셉 기여) / '
+        '[26년 1Q] 취급고 YoY +13.7% · 인보이스 +19.2% / 광고계정 수 1Q 평균 287개(25년 동기 217개) / W컨셉 협력광고 1.21억(YoY 성장)',
+
+    'B20':
+        ' • 성장지원금(GBP) 25년 미달성(Target 기준) → 달성률 회복 시급 / '
+        '잦은 플랫폼 업데이트·오류 시 보상 불가 → 광고주 만족도 리스크 / W컨셉 협업서 9/21 만료 전 연장 결정 필요',
+
+    'B21':
+        ' • ELCA 협력광고 비중 36.7%(26년 1Q) → 이탈 시 협력광고 매출 구조 타격 우려 / '
+        '블랙홀릭 이탈 이후 대형 광고주 공백(24년 11.3억 → 부재) → 신규 엔터프라이즈 광고주 발굴 전략 필요 / '
+        '메타 직커뮤니케이션 불가 정책 지속 → 채널2팀 POC 리소스 집중 구조 유지',
+
+    # ── 토스 ─────────────────────────────────────────────
+    'B23':
+        ' • LOT(최상위 파트너사) 자격 유지 / 4월 정산 7.43억(수기정산 1.02억 포함) / '
+        '세일즈커넥트 프로그램 참여(김나은 선임) / LOT 업스킬 족보 제작·배포 완료 / '
+        '2Q 인센티브 목표 14.3억(1구간)~16.7억(3구간) 대비 4~5월 누계 추이 추적 중',
+
+    'B24':
+        ' • 광고주 직영업(CP 직접 접촉)으로 광고팀·광고주 간 불편한 상황 간헐적 발생 / '
+        '3구간 정액 지급 폐지 또는 18억 신구간 신설 협의 중 → 결론에 따라 인센티브 구조 변화 예상',
+
+    'B25':
+        ' • 26년 단독 협업 리포트 논의 중 / 나스미디어 단독 프로모션 혜택 요청 지속 / '
+        'TEP 선정·세일즈커넥트 수료 후 내부 세일즈팀 대상 토스 역량 강화 교육 계획 / '
+        'Buy & Play at toss 신규 상품(5월 출시) 중심 리포트 공동 기획 예정',
+
+    # ── 기타(크리테오/당근/컬리) ──────────────────────────
+    'B27':
+        ' • 당근: 25년 취급고 127.2억(YoY +134.5%, 테무 제외 자력 +45.4%) / 광고계정 52→104개(2배 성장) / '
+        '26년 분기별 QBR 미팅 + 정부기관 CTR 데이터 지원 / 정기 충전 관리 체계 안정 운영',
+
+    'B28':
+        ' • 크리테오: 인보이스 정산 안정화 / 기존 대형 광고주(넥슨·LG전자) 안정 운영 / 신규 광고주 발굴 필요 / '
+        '컬리: 26년 프로모션 영업 활성화 지원금 공지 완료 / 커머스 광고주 확장 추진 중',
+
+    'B29':
+        ' • 공통 이슈: 신규 광고주 쿠폰 집행 시 수수료 미수취 → 세일즈 유인 부족 / '
+        '매출 수동 트래킹 → 자동 대시보드 도입 시급 / '
+        '버티컬 신규 매체(쿠팡·배달의민족·더현대하이) 탐색 및 미팅 진행 중',
+
+    # ── 담당자 섹션 ─────────────────────────────────────
+    'B32': '[이선애]',
+    'B33':
+        ' • 메타 2025 Agency First Game Changer 수상 주도(W컨셉 협력광고 파트너십·나스X메타 세미나 기획·운영) / '
+        'W컨셉 협력광고 49→83 브랜드 성장; 26년 MAFA 어워즈 수상 목표',
+
+    'B34':
+        ' • ELCA 이탈 대비 나스미디어 메타 경쟁력 자료 기획 중 / 토스 원시트·단독 협업 리포트 기획',
+
+    'B35': '[김나은]',
+    'B36':
+        ' • 메타 NOTE 플랫폼 고도화(스레드·협력광고·RTA 벤치마크 기능 4~5월 배포) / '
+        '워크서포트 주당 30~63건 1차 창구 운영 / 이슈 리포트 제작·배포',
+
+    'B37':
+        ' • 토스 4월 정산 7.43억 관리 / 세일즈커넥트 프로그램 참여·LOT 족보 제작 완료 / '
+        '2Q 인센티브 프로그램 달성률 트래킹',
+
+    'B38': '[박현]',
+    'B39':
+        ' • 네이버 SA 28개 광고주 운영·컨설팅·제안서 지원 / ADVoost 쇼핑 월 최대 2,000만원 추가 수수료 확보 / '
+        'SA 리포트 자동화 솔루션 개발(데이터킷 탑재·GFA API 연동 진행 중) / Expert 프로그램 4개사 선정',
+}
+
+batch_br = [{'range': c, 'values': [[v]]} for c, v in b_review.items()]
+ws_br.batch_update(batch_br, value_input_option='RAW')
+print('[B] 상반기 리뷰 내용 입력 완료')
+
+# 서식: 담당자 이름 행 볼드
+fmt_br = []
+bold_rows_br = [32, 35, 38]
+for r in bold_rows_br:
+    fmt_br.append({'repeatCell': {
+        'range': {'sheetId': SID_B_R, 'startRowIndex': r-1, 'endRowIndex': r, 'startColumnIndex': 1, 'endColumnIndex': 12},
+        'cell': {'userEnteredFormat': {'textFormat': {'bold': True, 'fontSize': 10}}},
+        'fields': 'userEnteredFormat.textFormat'
+    }})
+for r in range(6, 40):
+    fmt_br.append({'updateDimensionProperties': {
+        'range': {'sheetId': SID_B_R, 'dimension': 'ROWS', 'startIndex': r-1, 'endIndex': r},
+        'properties': {'pixelSize': 32}, 'fields': 'pixelSize'
+    }})
+service.spreadsheets().batchUpdate(spreadsheetId=DST_ID, body={'requests': fmt_br}).execute()
+print('[B] 상반기 리뷰 서식 완료')
+
+
+# ══════════════════════════════════════════════
+# [B] 하반기 플랜 — 동일 카테고리 구조 유지
+# ══════════════════════════════════════════════
+# 카테고리 구조 (원본 폼 그대로):
+#   B6~B20  : 우선 추진 과제 (네이버/메타/토스/기타)
+#   B22~B36 : 담당자별 핵심 과제
+#   B38~B48 : 실장/본부장 지원 요청
+
+b_plan = {
+    # ── 우선 추진 과제 ────────────────────────────────────
+    'B6':  '[네이버] ① DA 1위·프리미어 파트너사 지위 강화 + GFA/SA 성장',
+    'B7':
+        ' • 프리미어 파트너사 유지: 파트너 부스트 3Q 타겟 달성·PA 퀵윈 월별 신청 확대 / '
+        'ADVoost 쇼핑 수수료 2,000만원/월 수준 유지·확대 (25년 연간 5,571만원 → 26년 연 2억+ 목표)',
+    'B8':
+        ' • GFA 월 47억→50억 돌파 목표 / 애드부스트 커머스 빅광고주(패션·화장품·가전 중심) 신규 수주 '
+        '— 25년 상위 10개 업종 집행 트렌드(패션/화장품 19%, 가전 13%, 게임 10%) 기반 타겟 광고주 발굴',
+    'B9':
+        ' • SA 운영 28개→35개 목표 / DA+SA 통합 분석 서비스 차별화 (나스미디어 단독 강점으로 위기 기회 전환) / '
+        '리포트 자동화 솔루션 3Q 내 배포 → 플래너 직접 활용 체계 완성 / SME 광고주 자동화 관리 확대',
+
+    'B10': '[메타] ② 어워즈(MAFA) 수상 + 26년 성장 모멘텀 유지',
+    'B11':
+        ' • W컨셉 온사이트+협력광고 시너지 사례로 4Q Agency First Awards 도전 / '
+        '협업서 9/21 만료 전 연장 결정(상위 레벨 의사결정 필요) / '
+        'W컨셉 브랜드 83개 이탈 방어 + 협력광고 전체 YoY 성장 유지',
+    'B12':
+        ' • 26년 1Q YoY +13.7% 성장 가속 기조 유지 (인보이스 +19.2%) / '
+        'ELCA 이탈 대비 신규 협력광고 핵심 광고주 발굴·확보 / '
+        'GBP 성장지원금 25년 미달성 → 26년 Target 달성을 위한 엔터프라이즈 신규 수주 집중',
+    'B13':
+        ' • 글로벌 캠페인 협업 확대(젠틀몬스터·넥슨/넷마블 스레드 활성화) / '
+        'AI Advantage+ 캠페인 적용 확대로 광고주 성과 개선·CPM 효율화 지원',
+
+    'B14': '[토스] ③ LOT 인센티브 최대화 + 단독 협업 확대',
+    'B15':
+        ' • 2Q 인센티브 목표(14.3억~16.7억) 달성 추진 / 3구간 폐지·18억 신구간 협의 결과 최적 대응 / '
+        '3Q 목표 프로모션 참여 → 연 수수료 최대화',
+    'B16':
+        ' • 26년 단독 협업 리포트 발행 확정 → 영업본부 대상 토스 활용 가이드라인 공식화 / '
+        'Buy & Play at toss 신규 상품 집행 확대 지원',
+    'B17':
+        ' • 세일즈커넥트 수료 후 내부 세일즈팀 대상 토스 역량강화 교육 실시 / '
+        'TEP 파트너사 자격 유지·상위 등급 목표 / 나스미디어 단독 프로모션 혜택 요청 관철',
+
+    'B18': '[크리테오/당근/컬리] 버티컬 매체 성장 기회 포착',
+    'B19':
+        ' • 당근: 분기 QBR 기반 파이프라인 강화 / 25년 자력 성장률 +45% 기조 유지 목표 / '
+        '크리테오: 인센티브 프로모션 참여·신규 광고주 발굴 (ChatGPT 광고 검토 포함)',
+    'B20':
+        ' • 컬리: 커머스 광고주 확장 / 신규 매체(쿠팡·배달의민족·더현대하이) 미팅 → 파트너십 기반 마련 / '
+        '당근 광고계정 100개+ 유지·성장',
+
+    # ── 담당자별 핵심 과제 ─────────────────────────────────
+    'B22': '[이선애]',
+    'B23': ' • Agency First Awards 수상 도전 (W컨셉 온사이트+협력광고 시너지 사례 완성)',
+    'B24': ' • 26년 나스X메타 단독 세미나 기획·운영 (25년 Game Changer 수상 후속)',
+    'B25': ' • ELCA 이탈 대비 나스미디어 메타 경쟁력 자료 기획·제작',
+    'B26': ' • 토스 단독 협업 리포트 발행 기여 / 원시트 제안 자료 제작·배포',
+
+    'B27': '[김나은]',
+    'B28': ' • 메타 NOTE 플랫폼 하반기 추가 기능 기획·배포 / 이슈 리포트 품질 강화',
+    'B29': ' • 토스 LOT 인센티브 달성 / 세일즈커넥트 수료 후 내부 교육 실시',
+    'B30': ' • GBP 성장지원금 Target 달성 기여 / 메타 광고계정 350개+ 유지',
+    'B31': ' • 당근·크리테오 정산 안정화 / 신규 매체 온보딩 지원',
+
+    'B33': '[박현]',
+    'B34': ' • SA 리포트 자동화 3Q 내 배포 완료 (GFA API 연동 포함) / 운영 광고주 35개 목표',
+    'B35': ' • DA+SA 통합 분석 서비스 차별화 자료 기획 → 영업본부 공유',
+    'B36': ' • 매출 트래킹 자동 대시보드 구축 (매체별·시간대별 전일 소진 자동 집계)',
+
+    # ── 실장/본부장 지원 요청 ───────────────────────────────
+    'B38': '[매체사 상위 레벨 협의]',
+    'B39':
+        ' • 메타 코리아 — 허진영 이사 부재 이후 컨택 빈도 감소, 정기 관계 재개 선제 요청 (GBP 목표 달성 지원 포함)',
+    'B40': ' • W컨셉 협력광고 협업서 9/21 만료 → 상위 레벨 연장 의사결정 필요 (Agency First 전략 자산)',
+    'B41': ' • 토스 CPT 등 신규 상품 나스미디어 우선 제공 협의 / 네이버 플래너 공식 교육 프로그램 요청',
+    'B42': ' • 네이버 프리미어 파트너 써밋 참여 확대 (실장/임원급 라운딩·만찬 참여로 관계 강화)',
+
+    'B43': '[영업본부 협업 구조]',
+    'B44':
+        ' • 채널2팀 파트너십 업무(프리미어 파트너사 지위·인센티브 4.65억 확보·Game Changer 수상)가 '
+        '나스미디어 영업 경쟁력의 근거임을 영업본부 전체에 공식 어필 필요',
+    'B45':
+        ' • DA+SA 통합 제안 표준화: 영업본부 전체가 네이버 SA+DA 복합 수주할 수 있도록 제안 Kit 배포·정기 교육',
+    'B46': '[인력·운영체계]',
+    'B47': ' • 신규 인원 충원 요청 (1인당 5개+ 매체 담당, 전략 집중도 저하 우려)',
+    'B48': ' • 매출 트래킹 자동 대시보드 도입 / 반복 문의 처리 워크서포트 가이드 체계화 지원',
+}
+
+batch_bh = [{'range': c, 'values': [[v]]} for c, v in b_plan.items()]
+ws_bh.batch_update(batch_bh, value_input_option='RAW')
+print('[B] 하반기 플랜 내용 입력 완료')
+
+# 서식
+fmt_bh = []
+bold_rows_bh = [6, 10, 14, 18, 22, 27, 33, 38, 43, 46]
+for r in bold_rows_bh:
+    fmt_bh.append({'repeatCell': {
+        'range': {'sheetId': SID_B_H, 'startRowIndex': r-1, 'endRowIndex': r, 'startColumnIndex': 1, 'endColumnIndex': 12},
+        'cell': {'userEnteredFormat': {'textFormat': {'bold': True, 'fontSize': 10}}},
+        'fields': 'userEnteredFormat.textFormat'
+    }})
+for r in range(6, 49):
+    fmt_bh.append({'updateDimensionProperties': {
+        'range': {'sheetId': SID_B_H, 'dimension': 'ROWS', 'startIndex': r-1, 'endIndex': r},
+        'properties': {'pixelSize': 32}, 'fields': 'pixelSize'
+    }})
+service.spreadsheets().batchUpdate(spreadsheetId=DST_ID, body={'requests': fmt_bh}).execute()
+print('[B] 하반기 플랜 서식 완료')
+
+print(f'\n✓ 완료! 테스트 시트: https://docs.google.com/spreadsheets/d/{DST_ID}')
+print('시트 목록:')
+for ws in gc.open_by_key(DST_ID).worksheets():
+    print(f'  - {ws.title}')
