@@ -2,10 +2,10 @@
 """
 google_sheets.py — Google Sheets 읽기/쓰기 모듈
 
-셋업:
-  1. Google Cloud Console → 서비스 계정 생성 → JSON 키 다운로드
-  2. 키 파일을 config/google_service_account.json 에 저장
-  3. 해당 서비스 계정 이메일을 Google Sheet에 편집자로 공유
+인증 방식 (자동 선택):
+  1. OAuth2 (권장) — config/oauth_credentials.json 있으면 사용
+     r4bbrown85@gmail.com 계정으로 접근 가능한 모든 시트 편집 가능
+  2. 서비스 계정 — config/google_service_account.json 폴백
 
 사용법:
   writer = SheetsWriter("시트ID_or_URL")
@@ -16,7 +16,9 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-SERVICE_ACCOUNT_PATH = Path("config/google_service_account.json")
+OAUTH_CREDENTIALS_PATH = Path("config/oauth_credentials.json")
+SERVICE_ACCOUNT_PATH   = Path("config/google_service_account.json")
+OAUTH_TOKEN_PATH       = Path("config/oauth_token.json")
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive",
@@ -29,22 +31,49 @@ class SheetsWriter:
         spreadsheet_id_or_url: 스프레드시트 ID 또는 전체 URL
         """
         import gspread
-        from google.oauth2.service_account import Credentials
 
         sid = spreadsheet_id_or_url
         if "/spreadsheets/d/" in sid:
             sid = sid.split("/spreadsheets/d/")[1].split("/")[0]
         self.spreadsheet_id = sid
 
-        if not SERVICE_ACCOUNT_PATH.exists():
-            raise FileNotFoundError(
-                f"서비스 계정 키 파일 없음: {SERVICE_ACCOUNT_PATH}\n"
-                "Google Cloud Console → 서비스 계정 → 키 생성 → JSON 다운로드 후 저장하세요."
-            )
-
-        creds  = Credentials.from_service_account_file(str(SERVICE_ACCOUNT_PATH), scopes=SCOPES)
-        self.gc = gspread.authorize(creds)
+        self.gc = self._authorize()
         self.sh = self.gc.open_by_key(self.spreadsheet_id)
+
+    def _authorize(self):
+        import gspread
+        # OAuth2 우선 (r4bbrown85@gmail.com 계정)
+        if OAUTH_CREDENTIALS_PATH.exists():
+            from google.oauth2.credentials import Credentials
+            from google_auth_oauthlib.flow import InstalledAppFlow
+            from google.auth.transport.requests import Request
+
+            creds = None
+            if OAUTH_TOKEN_PATH.exists():
+                creds = Credentials.from_authorized_user_file(str(OAUTH_TOKEN_PATH), SCOPES)
+
+            if not creds or not creds.valid:
+                if creds and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                else:
+                    flow = InstalledAppFlow.from_client_secrets_file(
+                        str(OAUTH_CREDENTIALS_PATH), SCOPES)
+                    creds = flow.run_local_server(port=0)
+                OAUTH_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(OAUTH_TOKEN_PATH, "w") as f:
+                    f.write(creds.to_json())
+
+            return gspread.authorize(creds)
+
+        # 서비스 계정 폴백
+        if SERVICE_ACCOUNT_PATH.exists():
+            from google.oauth2.service_account import Credentials
+            creds = Credentials.from_service_account_file(str(SERVICE_ACCOUNT_PATH), scopes=SCOPES)
+            return gspread.authorize(creds)
+
+        raise FileNotFoundError(
+            "인증 파일 없음. config/oauth_credentials.json 을 저장하세요."
+        )
 
     def update_tab(self, tab_name: str, rows: List[dict],
                    clear: bool = True, start_cell: str = "A1") -> int:

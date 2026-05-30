@@ -1,0 +1,1 @@
+- [핵심 설계 원칙](project_core_principle.md) — 키워드 선별 품질 + 순위 최적화가 모든 설계의 대전제

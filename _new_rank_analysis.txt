@@ -1,0 +1,16 @@
+=== 키워드 제안 시트 (헤더 + 일부) ===
+R1: (None, '■ 비즈메카, BIZMEKA 검색광고 캠페인 운영 제안', None, None, None, None, None, None, None, None, None, None, None, None)
+R2: (None, None, None, None, None, None, None, None, None, None, None, None, None, None)
+R3: (None, '1. 브랜드 키워드', None, None, None, None, None, None, None, None, None, None, None, None)
+R4: (None, '   - 비즈메카 및 KT비즈메카 브랜드를 이미 인지하고 직접 검색하는 구매 의향 높은 사용자 대상 키워드', None, None, None, None, None, None, None, None, None, None, None, None)
+R5: (None, '2. 상품 키워드', None, None, None, None, None, None, None, None, None, None, None, None)
+...
+
+=== 키워드별 순위 현황 ===
+Headers: [None, '■ 비즈메카, BIZMEKA 검색광고 캠페인 운영 제안', None, None, None, None, None, None, None, None, None, None, None, None]
+키워드 컬럼=None, PC순위 컬럼=None, MO순위 컬럼=None
+총 키워드 수: 199
+PC 순위 5위 초과: 0개
+MO 순위 5위 초과: 0개
+
+=== 5위 초과 키워드 샘플 (PC 기준) ===
