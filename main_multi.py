@@ -729,7 +729,8 @@ def attach_naver_stats(rows):
     return rows
 
 
-def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
+def attach_budget_plan(recommended_rows, total_budget, brand_profile=None,
+                       pc_budget=None, mo_budget=None):
     keyword_rows = []
     for row in recommended_rows:
         keyword_rows.append({
@@ -750,7 +751,9 @@ def attach_budget_plan(recommended_rows, total_budget, brand_profile=None):
         optimize_budget(keyword_rows, total_budget,
                         competitors=(brand_profile or {}).get("competitors", []),
                         cat_config=(brand_profile or {}).get("keyword_categories", None),
-                        rank_overrides=(brand_profile or {}).get("rank_overrides", None))
+                        rank_overrides=(brand_profile or {}).get("rank_overrides", None),
+                        pc_budget=pc_budget,
+                        mo_budget=mo_budget)
 
     selected_map = {sim["keyword"]: sim for sim in selected}
 
@@ -870,8 +873,12 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
             progress_cb(step, pct)
 
     total_budget = brand_profile.get("monthly_budget", 5_000_000)
+    pc_budget    = brand_profile.get("pc_budget") or None
+    mo_budget    = brand_profile.get("mo_budget") or None
     print(f"\n{'='*50}")
     print(f"브랜드: {brand_name}")
+    if pc_budget and mo_budget:
+        print(f"예산: 총 {total_budget:,}원 (PC {pc_budget:,} / MO {mo_budget:,})")
     print(f"{'='*50}")
 
     # 2-0. SA 전략 브리핑 자동 생성 (캠페인 메모와 별개로 항상 실행)
@@ -977,7 +984,8 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     _progress("예산 시뮬레이션 중...", 0.83)
     print("  [7] 예산 시뮬레이션...")
     recommended, total_cost, standby_rows, all_options_map = \
-        attach_budget_plan(recommended, total_budget, brand_profile=brand_profile)
+        attach_budget_plan(recommended, total_budget, brand_profile=brand_profile,
+                           pc_budget=pc_budget, mo_budget=mo_budget)
     print(f"  예상 총 비용: {total_cost:,}원")
 
     # 8. Summary
@@ -1015,6 +1023,8 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
         "brand_name":        brand_name,
         "brand_category":    brand_profile.get("category", ""),
         "monthly_budget":    brand_profile.get("monthly_budget", 500000),
+        "pc_budget":         pc_budget,
+        "mo_budget":         mo_budget,
         "rows":              rows,
         "recommended":       recommended,
         "category_desc":     category_desc,
@@ -1340,6 +1350,8 @@ def save_multi_brand_excel(brand_results, filename, client_name, return_bytes=Fa
             brand_name,
             result["category_desc"],
             sa_memo=result.get("sa_strategy_memo", ""),
+            pc_budget=result.get("pc_budget"),
+            mo_budget=result.get("mo_budget"),
         )
 
         ws_expanded = wb.create_sheet(title=f"{short_name}_확장제안")

@@ -736,6 +736,34 @@ def brand_form(idx, data={}):
                 step=100_000, format="%d", key=f"bgt_{idx}",
                 help="Step 1 총 예산이 자동 반영됩니다"
             )
+            use_device_split = st.checkbox(
+                "디바이스별 예산 분리 (PC / MO)",
+                value=bool(data.get("pc_budget")),
+                key=f"dev_split_{idx}",
+                help="PC와 모바일 캠페인 예산을 따로 설정하면 디바이스별 최적 순위로 제안합니다",
+            )
+            pc_budget_val = mo_budget_val = None
+            if use_device_split:
+                _default_pc = data.get("pc_budget") or max(100_000, brand_budget // 2)
+                _default_mo = data.get("mo_budget") or max(100_000, brand_budget - _default_pc)
+                dc1, dc2 = st.columns(2, gap="small")
+                with dc1:
+                    pc_budget_val = st.number_input(
+                        "PC 예산 (원)",
+                        min_value=100_000, max_value=100_000_000,
+                        value=int(_default_pc), step=100_000, format="%d",
+                        key=f"pc_bgt_{idx}",
+                    )
+                with dc2:
+                    mo_budget_val = st.number_input(
+                        "MO 예산 (원)",
+                        min_value=100_000, max_value=100_000_000,
+                        value=int(_default_mo), step=100_000, format="%d",
+                        key=f"mo_bgt_{idx}",
+                    )
+                _split_total = pc_budget_val + mo_budget_val
+                if abs(_split_total - brand_budget) > 100_000:
+                    st.caption(f"⚠ PC+MO 합계 {_split_total:,}원 ≠ 총 예산 {brand_budget:,}원")
             cur_aw  = data.get("brand_awareness", "low")
             aw_idx  = AW_VALS.index(cur_aw) if cur_aw in AW_VALS else 0
             aw_sel  = st.selectbox("브랜드 인지도", AW_LABELS, index=aw_idx, key=f"aw_{idx}")
@@ -836,6 +864,8 @@ def brand_form(idx, data={}):
             "keyword_categories":     [],
             "exclude_keywords":       [],
             "monthly_budget":         brand_budget,
+            "pc_budget":              pc_budget_val,
+            "mo_budget":              mo_budget_val,
             "brand_awareness":        awareness,
             "competitor_budget_ratio": 0.1,
             "target_rank_general":    [3, 4, 5],
@@ -1049,6 +1079,11 @@ if st.session_state.get("_gen_pending"):
                     brand_cfg.get("exclude_keywords", []) + exc_kws))
 
             brand_profile = make_brand_profile(client_profile, brand_cfg)
+            # Per-brand budget override (brand_form의 brand_budget 반영)
+            if brand_cfg.get("monthly_budget"):
+                brand_profile["monthly_budget"] = brand_cfg["monthly_budget"]
+            brand_profile["pc_budget"] = brand_cfg.get("pc_budget")
+            brand_profile["mo_budget"] = brand_cfg.get("mo_budget")
 
             add_kws = st.session_state.custom_add_kws.get(bname, [])
             if add_kws:

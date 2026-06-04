@@ -132,7 +132,8 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
 #  B:키워드  C:구분  D:매체  E:입찰가  F:노출  G:클릭  H:비용  I:순위  J:비고
 _PROP_LAST_COL = 10  # J
 
-def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=None):
+def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=None,
+                           pc_budget=None, mo_budget=None):
     widths = {1:3, 2:26, 3:12, 4:5, 5:11, 6:10, 7:8, 8:12, 9:6, 10:8}
     for c, w in widths.items():
         ws.column_dimensions[get_column_letter(c)].width = w
@@ -219,12 +220,20 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
             mo_cost.append(_safe_int(r.get("mo_sim_cost", 0)))
             mo_rnk.append( _safe_int(r.get("proposed_rank_mo", 0)))
 
+    # 디바이스별 예산 분리 여부에 따라 헤더에 예산 표시
+    _budget_labels = {
+        "TOTAL": f"총 {(pc_budget or 0) + (mo_budget or 0):,}원" if pc_budget and mo_budget else "",
+        "PC":    f"예산 {pc_budget:,}원" if pc_budget else "",
+        "MO":    f"예산 {mo_budget:,}원" if mo_budget else "",
+    }
     for label, bids, imp, clk, cost, rnk in [
         ("TOTAL", pc_bids+mo_bids, pc_imp+mo_imp, pc_clk+mo_clk, pc_cost+mo_cost, pc_rnk+mo_rnk),
         ("PC",    pc_bids, pc_imp, pc_clk, pc_cost, pc_rnk),
         ("MO",    mo_bids, mo_imp, mo_clk, mo_cost, mo_rnk),
     ]:
-        _write_cell(ws, row, 2, label, bold=(label=="TOTAL"), bg=COLOR_SUBTOTAL_BG)
+        _bgt_label = _budget_labels.get(label, "")
+        _label_str = f"{label}  {_bgt_label}" if _bgt_label else label
+        _write_cell(ws, row, 2, _label_str, bold=(label=="TOTAL"), bg=COLOR_SUBTOTAL_BG)
         _write_cell(ws, row, 3, agg(bids),                    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row, 4, sum(imp),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row, 5, sum(clk),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
@@ -324,6 +333,11 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
                 note = f"실측{actual_rank:.0f}위"
             else:
                 note = ""
+            dev_eff = kw_row.get("device_efficiency", "")
+            if dev_eff:
+                eff_tag = {"PC우위": "PC↑", "MO우위": "MO↑", "균등": "균등"}.get(dev_eff, "")
+                if eff_tag:
+                    note = f"{note}·{eff_tag}" if note else eff_tag
             keyword_str  = kw_row.get("keyword", "")
             category_str = kw_row.get("category", "")
 
@@ -428,7 +442,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
 
 
 # ── 요약 시트 ─────────────────────────────────────────────────
-def _write_summary_sheet(ws, rec_sorted, advertiser):
+def _write_summary_sheet(ws, rec_sorted, advertiser, pc_budget=None, mo_budget=None):
     for col, w in {1:3, 2:26, 3:18, 4:18, 5:18}.items():
         ws.column_dimensions[get_column_letter(col)].width = w
 
@@ -483,30 +497,57 @@ def _write_summary_sheet(ws, rec_sorted, advertiser):
                 bold=True, align_h="left")
     row += 1
 
-    ws.merge_cells(f"C{row}:E{row}")
-    _write_cell(ws, row, 2, "PC 캠페인 예산", bold=True, bg=COLOR_HEADER_BG)
-    _write_cell(ws, row, 3, total_pc_cost, num_fmt="#,##0", align_h="right",
-                bg="E3F2FD", bold=True)
-    row += 1
+    if pc_budget and mo_budget:
+        # 디바이스별 예산 분리 모드: 입력 예산 + 예상 집행 + 활용률 표시
+        for dev, bgt, actual, bg_col in [
+            ("PC 예산", pc_budget, total_pc_cost, "E3F2FD"),
+            ("MO 예산", mo_budget, total_mo_cost, "E8F5E9"),
+        ]:
+            util = round(actual / bgt * 100, 1) if bgt > 0 else 0
+            ws.merge_cells(f"C{row}:D{row}")
+            _write_cell(ws, row, 2, dev, bold=True, bg=COLOR_HEADER_BG)
+            _write_cell(ws, row, 3, bgt,    num_fmt="#,##0", align_h="right", bg=bg_col, bold=True)
+            _write_cell(ws, row, 4, actual, num_fmt="#,##0", align_h="right", bg=bg_col)
+            _write_cell(ws, row, 5, f"{util}%",              align_h="right", bg=bg_col)
+            row += 1
+        # 헤더 표기 (거꾸로 삽입)
+        for _c, _lbl in [(2,"구분"), (3,"입력 예산"), (4,"예상 집행"), (5,"활용률")]:
+            _write_cell(ws, row-3, _c, _lbl, bold=True, bg=COLOR_HEADER_BG)  # no-op already written
+        ws.merge_cells(f"C{row}:E{row}")
+        _write_cell(ws, row, 2, "합계", bold=True, bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 3, pc_budget + mo_budget, num_fmt="#,##0", align_h="right",
+                    bg=COLOR_SUBTOTAL_BG, bold=True)
+        row += 1
+        ws.merge_cells(f"B{row}:E{row}")
+        _write_cell(ws, row, 2,
+                    f"※ PC {total_pc_cost:,}원 / MO {total_mo_cost:,}원 (입력 예산 PC {pc_budget:,} / MO {mo_budget:,})",
+                    font_size=8, font_color="595959", italic=True, align_h="left")
+        row += 1
+    else:
+        ws.merge_cells(f"C{row}:E{row}")
+        _write_cell(ws, row, 2, "PC 캠페인 예산", bold=True, bg=COLOR_HEADER_BG)
+        _write_cell(ws, row, 3, total_pc_cost, num_fmt="#,##0", align_h="right",
+                    bg="E3F2FD", bold=True)
+        row += 1
 
-    ws.merge_cells(f"C{row}:E{row}")
-    _write_cell(ws, row, 2, "MO 캠페인 예산", bold=True, bg=COLOR_HEADER_BG)
-    _write_cell(ws, row, 3, total_mo_cost, num_fmt="#,##0", align_h="right",
-                bg="E8F5E9", bold=True)
-    row += 1
+        ws.merge_cells(f"C{row}:E{row}")
+        _write_cell(ws, row, 2, "MO 캠페인 예산", bold=True, bg=COLOR_HEADER_BG)
+        _write_cell(ws, row, 3, total_mo_cost, num_fmt="#,##0", align_h="right",
+                    bg="E8F5E9", bold=True)
+        row += 1
 
-    ws.merge_cells(f"C{row}:E{row}")
-    _write_cell(ws, row, 2, "합계", bold=True, bg=COLOR_SUBTOTAL_BG)
-    _write_cell(ws, row, 3, real_total_cost, num_fmt="#,##0", align_h="right",
-                bg=COLOR_SUBTOTAL_BG, bold=True)
-    row += 1
+        ws.merge_cells(f"C{row}:E{row}")
+        _write_cell(ws, row, 2, "합계", bold=True, bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 3, real_total_cost, num_fmt="#,##0", align_h="right",
+                    bg=COLOR_SUBTOTAL_BG, bold=True)
+        row += 1
 
-    # 안내 문구
-    ws.merge_cells(f"B{row}:E{row}")
-    _write_cell(ws, row, 2,
-                f"※ PC/MO 캠페인 분리 운영 기준입니다. 총 예산 내에서 PC {total_pc_cost:,}원 / MO {total_mo_cost:,}원으로 배분하여 운영하세요.",
-                font_size=8, font_color="595959", italic=True, align_h="left")
-    row += 1
+        # 안내 문구
+        ws.merge_cells(f"B{row}:E{row}")
+        _write_cell(ws, row, 2,
+                    f"※ PC/MO 캠페인 분리 운영 기준입니다. 총 예산 내에서 PC {total_pc_cost:,}원 / MO {total_mo_cost:,}원으로 배분하여 운영하세요.",
+                    font_size=8, font_color="595959", italic=True, align_h="left")
+        row += 1
 
     row += 1
     ws.merge_cells(f"B{row}:E{row}")

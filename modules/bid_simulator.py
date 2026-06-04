@@ -214,7 +214,8 @@ def _estimate_rank_from_ctr_fallback(pc_clicks, pc_impr, mo_clicks, mo_impr):
     return max(1, min(10, round((pc_rank + mo_rank) / 2))), pc_rank, mo_rank
 
 
-def _cap_options_by_budget(options, category, total_budget, cat_map=None):
+def _cap_options_by_budget(options, category, total_budget, cat_map=None,
+                            pc_budget=None, mo_budget=None):
     if cat_map is None:
         cat_map = _get_cat_map()
     cat_cfg     = cat_map.get(category, {})
@@ -230,6 +231,17 @@ def _cap_options_by_budget(options, category, total_budget, cat_map=None):
     capped = [opt for opt in options if opt["cost"] <= max_cost]
     if not capped and options:
         capped = [min(options, key=lambda x: x["cost"])]
+
+    # 디바이스별 예산 분리 시: PC/MO 각각의 per-keyword 상한 추가 필터
+    if pc_budget is not None and mo_budget is not None:
+        pc_max = pc_budget * max_ratio
+        mo_max = mo_budget * max_ratio
+        device_capped = [opt for opt in capped
+                         if opt.get("pc_cost", 0) <= pc_max
+                         and opt.get("mo_cost", 0) <= mo_max]
+        if device_capped:
+            capped = device_capped
+        # 필터 후 비면 원래 total cap만 적용한 capped 유지
 
     if not capped:
         return []
@@ -371,7 +383,8 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None,
 
 def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
                            median_bid_pc=0, median_bid_mo=0,
-                           exposure_min_bid_pc=0, exposure_min_bid_mo=0):
+                           exposure_min_bid_pc=0, exposure_min_bid_mo=0,
+                           pc_budget=None, mo_budget=None):
     if cat_map is None:
         cat_map = _get_cat_map()
     keyword         = keyword_row.get("keyword", "")
@@ -453,7 +466,8 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
         if options:
             options.sort(key=lambda x: (-x["weighted_score"], x["rank"], x["cost"]))
             _full_rank_opts_cache[keyword] = options[:]  # cap 적용 전 전체 순위 보관
-            return _cap_options_by_budget(options, category, total_budget, cat_map)
+            return _cap_options_by_budget(options, category, total_budget, cat_map,
+                                          pc_budget=pc_budget, mo_budget=mo_budget)
 
     # ── Fallback: API 1 커브 기반 추정 ───────────────────────────────────────
     bid_candidates   = _build_bid_candidates(keyword_row, cat_map)
@@ -524,8 +538,8 @@ def build_keyword_options(keyword_row, total_budget=5_000_000, cat_map=None,
         return _build_fallback_options(keyword_row, total_budget, cat_map)
 
     options.sort(key=lambda x: (-x["weighted_score"], x["rank"], x["cost"]))
-    return _cap_options_by_budget(options, category, total_budget, cat_map)
-
+    return _cap_options_by_budget(options, category, total_budget, cat_map,
+                                  pc_budget=pc_budget, mo_budget=mo_budget)
 
 
 def _real_cost(opt):
@@ -646,7 +660,16 @@ def _apply_budget_cap(selected_map, all_records, total_budget):
             total_cost -= _real_cost(selected_map.pop(keyword))
 
 
-def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=None, rank_overrides=None):
+def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=None,
+                    rank_overrides=None, pc_budget=None, mo_budget=None):
+    # 디바이스별 예산 분리 시: 합산을 effective 예산으로 사용
+    if pc_budget is not None and mo_budget is not None:
+        effective_budget = pc_budget + mo_budget
+    else:
+        effective_budget = total_budget
+        pc_budget = None
+        mo_budget = None
+
     if cat_config:
         cat_map = {c["name"]: c for c in cat_config}
     else:
@@ -728,11 +751,13 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
         kw = row.get("keyword", "")
         options = build_keyword_options(
-            row, total_budget, cat_map,
+            row, effective_budget, cat_map,
             median_bid_pc=_median_pc.get(kw, 0),
             median_bid_mo=_median_mo.get(kw, 0),
             exposure_min_bid_pc=_expmin_pc.get(kw, 0),
             exposure_min_bid_mo=_expmin_mo.get(kw, 0),
+            pc_budget=pc_budget,
+            mo_budget=mo_budget,
         )
         if not options:
             skip_count += 1
@@ -817,7 +842,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
         print(f"  [{cat_name}] max_keywords 적용: {original_count}개 → {max_kw}개")
 
     selected_map = {}
-    remaining    = total_budget
+    remaining    = effective_budget
 
     # 1단계: brand 타입 min_keywords 우선 확보
     for cat_name, cfg in cat_map.items():
@@ -871,26 +896,26 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     )
     accumulated = sum(_real_cost(v) for v in selected_map.values())
     for item in no_cap_records:
-        if accumulated >= total_budget:
+        if accumulated >= effective_budget:
             break
-        opt = _pick_initial_option(item["options"], total_budget - accumulated)
+        opt = _pick_initial_option(item["options"], effective_budget - accumulated)
         if opt is None:
             continue
         cost = _real_cost(opt)
-        if accumulated + cost > total_budget:
+        if accumulated + cost > effective_budget:
             continue
         selected_map[item["keyword"]] = opt
         accumulated += cost
 
     # 3-2: 업그레이드 (예산이 남으면 적극적으로 순위 올리기)
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    budget_remaining = total_budget - accumulated
+    budget_remaining = effective_budget - accumulated
     if budget_remaining > 0:
         no_cap_selected = [r for r in all_records
                            if r["keyword"] in selected_map
                            and cat_map.get(r["category"], {}).get("max_budget_ratio") is None]
         # BUDGET_OVERAGE_RATIO(110%)까지 적극적으로 순위 업그레이드 허용
-        upgrade_target = min(total_budget * BUDGET_OVERAGE_RATIO - accumulated, budget_remaining)
+        upgrade_target = min(effective_budget * BUDGET_OVERAGE_RATIO - accumulated, budget_remaining)
         if upgrade_target > 0:
             _upgrade_selected_with_budget(no_cap_selected, upgrade_target, selected_map)
         accumulated = sum(_real_cost(v) for v in selected_map.values())
@@ -899,7 +924,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
     # _full_rank_opts_cache(cap 이전 전체 순위)를 활용해 max_single_ratio 상한을 우회한 rank1 업그레이드 허용
     # 조건: 예산 활용률 < 90% + 단일 키워드 비용 <= 총 예산의 30%
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    if accumulated < total_budget * 0.90:
+    if accumulated < effective_budget * 0.90:
         rank1_fill_candidates = sorted(
             [(kw, opt) for kw, opt in selected_map.items()
              if not opt.get("is_fallback", False)
@@ -914,12 +939,12 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             cur_rank    = current.get("rank", 5)
             cur_score   = current.get("weighted_score", 0.0)
             # BUDGET_OVERAGE_RATIO 기준 잔여 예산 (110% 한도까지 허용)
-            remaining_now = total_budget * BUDGET_OVERAGE_RATIO - sum(_real_cost(v) for v in selected_map.values())
+            remaining_now = effective_budget * BUDGET_OVERAGE_RATIO - sum(_real_cost(v) for v in selected_map.values())
             if remaining_now <= 0:
                 break
             # 현재보다 높은 순위(낮은 rank 번호)이고, 비용 상한 내이며, 잔여 예산으로 커버되는 옵션
             # 예산 채우기 단계: 효율 조건 없음 — 순위 업그레이드 자체가 목적
-            per_kw_cap = total_budget * 0.30
+            per_kw_cap = effective_budget * 0.30
             better_opts = [
                 o for o in full_opts
                 if o.get("rank", 5) < cur_rank
@@ -941,13 +966,13 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
     # 3-3: 업그레이드로도 예산이 남으면 미선별 키워드 추가 배정 (Fallback 제외)
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    if accumulated < total_budget * 0.85:
+    if accumulated < effective_budget * 0.85:
         # 예산 50% 미만 소진이면 active 키워드를 더 적극 배정
         remaining_active = [r for r in active_records
                             if r["keyword"] not in selected_map]
         for item in sorted(remaining_active,
                            key=lambda x: -x["best_option"]["weighted_score"]):
-            left = total_budget - sum(_real_cost(v) for v in selected_map.values())
+            left = effective_budget - sum(_real_cost(v) for v in selected_map.values())
             if left <= 0:
                 break
             opt = _pick_initial_option(item["options"], left)
@@ -958,13 +983,13 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
     # 4단계: 경쟁사 카테고리 배정 (max_budget_ratio 상한 내에서)
     accumulated = sum(_real_cost(v) for v in selected_map.values())
-    budget_left = max(total_budget - accumulated, 0)
+    budget_left = max(effective_budget - accumulated, 0)
     if budget_left > 0:
         for cat_name, cfg in cat_map.items():
             max_ratio = cfg.get("max_budget_ratio")
             if max_ratio is None:
                 continue
-            cat_budget_cap = int(total_budget * max_ratio)
+            cat_budget_cap = int(effective_budget * max_ratio)
             records = cat_groups.get(cat_name, [])
             if not records:
                 continue
@@ -979,7 +1004,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             ):
                 if cat_remaining <= 0:
                     break
-                global_left = total_budget - sum(_real_cost(v) for v in selected_map.values())
+                global_left = effective_budget - sum(_real_cost(v) for v in selected_map.values())
                 if global_left <= 0:
                     break
                 avail = min(cat_remaining, global_left)
@@ -996,18 +1021,18 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             max_ratio = cfg.get("max_budget_ratio")
             if max_ratio is None:
                 continue
-            cat_budget_cap = int(total_budget * max_ratio)
+            cat_budget_cap = int(effective_budget * max_ratio)
             cat_records = [r for r in all_records
                            if r["keyword"] in selected_map and r["category"] == cat_name]
             cat_spent  = sum(_real_cost(selected_map[r["keyword"]]) for r in cat_records)
             cat_left   = max(cat_budget_cap - cat_spent, 0)
-            global_left = total_budget - sum(_real_cost(v) for v in selected_map.values())
+            global_left = effective_budget - sum(_real_cost(v) for v in selected_map.values())
             upgrade_budget = min(cat_left, global_left)
             if upgrade_budget > 0:
                 _upgrade_selected_with_budget(cat_records, upgrade_budget, selected_map)
 
     # 5단계: 예산 초과 캡
-    _apply_budget_cap(selected_map, all_records, total_budget)
+    _apply_budget_cap(selected_map, all_records, effective_budget)
 
     # 6단계: 사용자 지정 목표 순위 적용 (rank_overrides)
     # 최적화 결과와 무관하게 특정 키워드를 지정 순위로 고정
@@ -1073,6 +1098,11 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
             "mo_cost":        _mo_cst,
             "anchor_bid":     row.get("anchor_bid", 0),
             "is_fallback":    row.get("is_fallback", False),
+            "device_efficiency": (
+                "PC우위" if _pc_clk > _mo_clk * 1.5
+                else "MO우위" if _mo_clk > _pc_clk * 1.5
+                else "균등"
+            ),
         })
 
     final_total_cost = sum(r["cost"] for r in output_rows)
@@ -1105,7 +1135,7 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
 
     final_total_cost  = sum(_row_actual_cost(r) for r in output_rows)
     selected_keywords = {r["keyword"] for r in output_rows}
-    over_budget = final_total_cost - total_budget
+    over_budget = final_total_cost - effective_budget
     if over_budget > 0:
         print(f"  [예산초과] 예상 비용 {int(final_total_cost):,}원 (예산 대비 +{int(over_budget):,}원) - 효율 우선 유지")
 
