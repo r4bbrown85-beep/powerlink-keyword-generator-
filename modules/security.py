@@ -9,7 +9,12 @@ _LOG_DIR = Path(__file__).parent.parent / "logs"
 
 def _get_pw_hash() -> str:
     raw = os.environ.get("APP_PASSWORD", "")
-    return hashlib.sha256(raw.encode()).hexdigest()
+    if not raw:
+        try:
+            raw = st.secrets.get("APP_PASSWORD", "")
+        except Exception:
+            pass
+    return hashlib.sha256(str(raw).encode()).hexdigest()
 
 
 def _get_ip() -> str:
