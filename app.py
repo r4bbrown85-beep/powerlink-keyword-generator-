@@ -14,6 +14,8 @@ except Exception:
     pass
 
 
+from modules.security import check_auth, log_action
+
 def _split_keywords(text: str) -> list[str]:
     """쉼표·줄바꿈·탭 중 어떤 구분자로 붙여넣어도 키워드 리스트로 변환."""
     import re
@@ -351,6 +353,9 @@ small, .st-emotion-cache-s1r2mm { color:#94A3B8 !important; font-size:12px !impo
 </style>
 """, unsafe_allow_html=True)
 
+# ─── 인증 체크 (미인증 시 로그인 화면 표시 후 중단) ──────────────────────────────
+check_auth()
+
 # ─── 앱 바 ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="pl-bar">
@@ -616,14 +621,15 @@ if _page == "simulator":
 </div>
 """, unsafe_allow_html=True)
 
-            st.download_button(
+            if st.download_button(
                 label="⬇  엑셀 제안서 다운로드",
                 data=st.session_state.sim_excel_bytes,
                 file_name=f"{res['brand_name']}_budget_sim_{today}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
                 key="sim_dl_btn",
-            )
+            ):
+                log_action("DOWNLOAD_SIMULATOR", f"brand={res['brand_name']}")
             st.caption(
                 "예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. "
                 "실제 운영 성과는 광고 품질지수·예산 집행 속도에 따라 달라질 수 있습니다."
@@ -1396,11 +1402,12 @@ if st.session_state.brand_results:
 </div>
 """, unsafe_allow_html=True)
 
-    st.download_button(
+    if st.download_button(
         label="⬇  엑셀 제안서 다운로드",
         data=st.session_state.excel_bytes,
         file_name=f"{st.session_state.client_name}_proposal_{today}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True
-    )
+    ):
+        log_action("DOWNLOAD_PROPOSAL", f"client={st.session_state.client_name}")
     st.caption("예상 성과(노출수·클릭수·비용)는 네이버 Estimate API 기반 시뮬레이션 수치입니다. 실제 운영 성과는 광고 품질지수·예산 집행 속도에 따라 달라질 수 있습니다.")

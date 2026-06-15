@@ -11,3 +11,4 @@ data/*.xlsx
 config/oauth_token.json
 config/oauth_credentials.json
 config/google_service_account.json
+logs/
