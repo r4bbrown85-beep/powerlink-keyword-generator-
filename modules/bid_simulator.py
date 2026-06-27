@@ -28,18 +28,50 @@ BUDGET_OVERAGE_RATIO = 1.10
 # ── 기본값 (profile에 keyword_categories 없을 때 fallback) ────────
 _DEFAULT_CATEGORIES = [
     {"name": "브랜드 키워드", "type": "brand",      "priority": 1.30,
-     "min_keywords": 10, "target_rank": 2, "max_rank": 3,
+     "min_keywords": 10, "target_rank": 1, "max_rank": 3,
      "max_single_ratio": 0.20, "cpc_factor": 1.10, "color": "BDD7EE"},
     {"name": "상품 키워드",   "type": "product",    "priority": 1.22,
-     "min_keywords": 5,  "target_rank": 3, "max_rank": 5,
+     "min_keywords": 5,  "target_rank": 2, "max_rank": 5,
      "max_single_ratio": 0.15, "cpc_factor": 1.05, "color": "C6EFCE"},
     {"name": "일반 키워드",   "type": "general",    "priority": 1.00,
-     "min_keywords": 5,  "target_rank": 4, "max_rank": 5,
+     "min_keywords": 5,  "target_rank": 3, "max_rank": 5,
      "max_single_ratio": 0.15, "cpc_factor": 1.00, "color": "FFF2CC"},
     {"name": "경쟁사 키워드", "type": "competitor", "priority": 0.88,
-     "min_keywords": 0,  "target_rank": 5, "max_rank": 5,
-     "max_single_ratio": 0.04, "cpc_factor": 0.90, "color": "FCE4D6"},
+     "min_keywords": 0,  "target_rank": 4, "max_rank": 5,
+     "max_single_ratio": 0.04, "cpc_factor": 0.90, "color": "FCE4D6",
+     "max_budget_ratio": 0.15},
 ]
+
+# ── 타입별 기본값 (AI 생성 카테고리 enrich 용) ─────────────────────────────
+_TYPE_DEFAULTS = {
+    "brand":      {"priority": 1.30, "min_keywords": 5,  "target_rank": 1, "max_rank": 3,
+                   "max_single_ratio": 0.20, "cpc_factor": 1.10, "color": "BDD7EE"},
+    "product":    {"priority": 1.22, "min_keywords": 3,  "target_rank": 2, "max_rank": 5,
+                   "max_single_ratio": 0.15, "cpc_factor": 1.05, "color": "C6EFCE"},
+    "general":    {"priority": 1.00, "min_keywords": 3,  "target_rank": 3, "max_rank": 5,
+                   "max_single_ratio": 0.15, "cpc_factor": 1.00, "color": "FFF2CC"},
+    "competitor": {"priority": 0.88, "min_keywords": 0,  "target_rank": 4, "max_rank": 5,
+                   "max_single_ratio": 0.04, "cpc_factor": 0.90, "color": "FCE4D6",
+                   "max_budget_ratio": 0.15},
+}
+
+
+def enrich_cat_config(cat_list: list) -> list:
+    """AI 생성 카테고리 리스트에 bid_simulator 필요 필드 채우기."""
+    result = []
+    for i, cat in enumerate(cat_list):
+        t = str(cat.get("type", "general")).lower()
+        if t not in _TYPE_DEFAULTS:
+            t = "general"
+        enriched = _TYPE_DEFAULTS[t].copy()
+        enriched["name"]        = cat.get("name", f"카테고리{i+1}")
+        enriched["type"]        = t
+        enriched["target_rank"] = int(cat.get("target_rank", enriched["target_rank"]))
+        for k in ("description", "min_keywords", "max_keywords", "max_budget_ratio"):
+            if k in cat:
+                enriched[k] = cat[k]
+        result.append(enriched)
+    return result
 
 TYPE_WEIGHT = {
     "BRAND":      1.25,
@@ -574,6 +606,26 @@ def _select_records_with_budget(records, budget, selected_map):
     return spent
 
 
+def _boost_to_rank1(records, budget_cap, selected_map):
+    """예산 미소진 시 rank1 옵션으로 강제 업그레이드 (score 무시, 비경쟁사 카테고리 대상)."""
+    for item in records:
+        kw = item["keyword"]
+        full_opts = _full_rank_opts_cache.get(kw, item.get("options", []))
+        if not full_opts:
+            continue
+        rank1_opts = [o for o in full_opts if o.get("rank", 99) == 1 and not o.get("is_fallback", False)]
+        if not rank1_opts:
+            continue
+        best_rank1 = max(rank1_opts, key=lambda o: o["weighted_score"])
+        cur_cost   = _real_cost(selected_map.get(kw, {}))
+        new_cost   = _real_cost(best_rank1)
+        if new_cost <= cur_cost:
+            continue
+        total_now = sum(_real_cost(v) for v in selected_map.values())
+        if total_now - cur_cost + new_cost <= budget_cap * BUDGET_OVERAGE_RATIO:
+            selected_map[kw] = best_rank1
+
+
 def _upgrade_selected_with_budget(records, budget_left, selected_map):
     if budget_left <= 0:
         return 0
@@ -980,6 +1032,22 @@ def optimize_budget(keyword_rows, total_budget, competitors=None, cat_config=Non
                 continue
             selected_map[item["keyword"]] = opt
         accumulated = sum(_real_cost(v) for v in selected_map.values())
+
+    # 3-4: 예산 소진율 기반 rank1 강제 업그레이드
+    # 전체 키워드를 rank1로 배정해도 예산이 남는 경우, 비경쟁사 카테고리 우선 적극 올리기
+    accumulated  = sum(_real_cost(v) for v in selected_map.values())
+    utilization  = accumulated / effective_budget if effective_budget > 0 else 1.0
+    if utilization < 0.85:
+        boost_records = [
+            r for r in all_records
+            if r["keyword"] in selected_map
+            and cat_map.get(r["category"], {}).get("type") != "competitor"
+        ]
+        print(f"  [예산소진] {utilization:.0%} 소진 — rank1 적극 업그레이드 시도 ({len(boost_records)}개 대상)")
+        _boost_to_rank1(boost_records, effective_budget, selected_map)
+        accumulated   = sum(_real_cost(v) for v in selected_map.values())
+        util_after    = accumulated / effective_budget if effective_budget > 0 else 1.0
+        print(f"  [예산소진] rank1 업그레이드 후: {util_after:.0%} ({accumulated:,.0f}원 / {effective_budget:,.0f}원)")
 
     # 4단계: 경쟁사 카테고리 배정 (max_budget_ratio 상한 내에서)
     accumulated = sum(_real_cost(v) for v in selected_map.values())

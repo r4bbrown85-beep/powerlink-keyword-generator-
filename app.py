@@ -1011,12 +1011,11 @@ if _gen_btn:
         st.session_state._gen_pending = True
         st.session_state._ui_status   = "generating"
         st.session_state._ui_msg      = "⏳ 제안서를 생성하고 있습니다... 수 분 소요됩니다. 페이지를 닫거나 새로고침하지 마세요."
-        st.rerun()  # 명시적 rerun — 버튼 클릭 렌더와 생성 렌더 분리
+        _status_area.warning(st.session_state._ui_msg)
 
 if st.session_state.get("_gen_pending"):
     st.session_state._gen_pending = False
-    # Normal button path: stored values override local widget reads
-    # Fragment rerun path: stored values are empty → keep local widget reads
+    # 버튼 직접 클릭: 저장된 값 사용 / fragment 재생성 rerun: 저장된 값 사용
     _stored_cn = st.session_state.get("_gen_client_name", "")
     _stored_bc = st.session_state.get("_gen_brand_configs", [])
     _stored_gs = st.session_state.get("_gen_goal_str", "")
@@ -1025,14 +1024,6 @@ if st.session_state.get("_gen_pending"):
     if _stored_bc:
         brand_configs = _stored_bc
     goal_str = _stored_gs or ", ".join(campaign_goals)
-    if not client_name or not brand_configs:
-        st.session_state._ui_status = "error"
-        st.session_state._ui_msg    = "생성 정보가 손실되었습니다. 다시 버튼을 클릭해주세요."
-        st.session_state._gen_pending = False
-        st.rerun()
-
-    # _ui_status = "generating" 이 이미 session_state에 설정되어 있으므로
-    # 상단 status 렌더링 블록이 warning을 표시 중 — 별도 warning 호출 불필요
 
     client_profile = {
         "client":           client_name,

@@ -18,11 +18,14 @@ COLOR_SUBTOTAL_BG = "F2F2F2"
 COLOR_FALLBACK_BG = "FFF9C4"
 
 
-def _cat_color(category):
+def _cat_color(category, cat_config_map=None):
+    # cat_config_map: {name: color_hex} — AI 생성 카테고리 색상 우선 적용
+    if cat_config_map and category in cat_config_map:
+        return cat_config_map[category]
     s = str(category)
-    if "브랜드" in s:   return COLOR_CAT_BRAND
-    if "상품"   in s:   return COLOR_CAT_PRODUCT
-    if "경쟁사" in s:   return COLOR_CAT_COMP
+    if "브랜드" in s:                     return COLOR_CAT_BRAND
+    if "상품" in s or "제품" in s or "서비스" in s: return COLOR_CAT_PRODUCT
+    if "경쟁사" in s or "competitor" in s.lower(): return COLOR_CAT_COMP
     return COLOR_CAT_GENERAL
 
 
@@ -128,13 +131,14 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
 
 
 # ── 제안서 시트 ───────────────────────────────────────────────
-# 컬럼 레이아웃 (A=여백, B~J=데이터):
-#  B:키워드  C:구분  D:매체  E:입찰가  F:노출  G:클릭  H:비용  I:순위  J:비고
-_PROP_LAST_COL = 10  # J
+# 컬럼 레이아웃 (A=여백, B~N=데이터):
+#  B:키워드  C:구분  D:PC입찰가  E:PC노출  F:PC클릭  G:PC비용  H:PC순위
+#  I:MO입찰가  J:MO노출  K:MO클릭  L:MO비용  M:MO순위  N:비고
+_PROP_LAST_COL = 14  # N
 
 def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=None,
                            pc_budget=None, mo_budget=None):
-    widths = {1:3, 2:26, 3:12, 4:5, 5:11, 6:10, 7:8, 8:12, 9:6, 10:8}
+    widths = {1:3, 2:26, 3:12, 4:9, 5:9, 6:8, 7:11, 8:6, 9:9, 10:9, 11:8, 12:11, 13:6, 14:10}
     for c, w in widths.items():
         ws.column_dimensions[get_column_letter(c)].width = w
 
@@ -194,7 +198,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
 
     for i, h in enumerate(["구분","평균 입찰가","노출","클릭","CTR","비용","평균 순위"]):
         _write_cell(ws, row, 2+i, h, bold=True, bg=COLOR_HEADER_BG)
-    for _ec in [9, 10]:
+    for _ec in range(9, 15):
         _write_cell(ws, row, _ec, "", bold=True, bg=COLOR_HEADER_BG)
     ws.row_dimensions[row].height = 15
     row += 1
@@ -240,8 +244,8 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
         _write_cell(ws, row, 6, ctr_val(sum(clk), sum(imp)),  bg=COLOR_SUBTOTAL_BG, num_fmt="0.00%")
         _write_cell(ws, row, 7, sum(cost),                    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
         _write_cell(ws, row, 8, agg(rnk),                     bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0.0")
-        _write_cell(ws, row, 9,  "",                          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 10, "",                          bg=COLOR_SUBTOTAL_BG)
+        for _ec in range(9, 15):
+            _write_cell(ws, row, _ec, "", bg=COLOR_SUBTOTAL_BG)
         ws.row_dimensions[row].height = 15
         row += 1
     row += 1
@@ -275,9 +279,25 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
         ws.row_dimensions[row].height = 16
         row += 1
 
-        # 칼럼 헤더
-        for _ci, _lbl in enumerate(["키워드","구분","매체","입찰가","노출","클릭","비용","순위","비고"]):
-            _write_cell(ws, row, 2+_ci, _lbl, bold=True, bg=COLOR_HEADER_BG)
+        # 칼럼 헤더 2행: 1행=PC/MO 그룹, 2행=세부 항목
+        # 1행
+        _write_cell(ws, row,   2, "키워드",           bold=True, bg=COLOR_HEADER_BG)
+        _write_cell(ws, row,   3, "구분",             bold=True, bg=COLOR_HEADER_BG)
+        ws.merge_cells(f"D{row}:H{row}")
+        _write_cell(ws, row,   4, "PC 예상 운영 성과", bold=True, bg="D6E4F7", align_h="center")
+        ws.merge_cells(f"I{row}:M{row}")
+        _write_cell(ws, row,   9, "MO 예상 운영 성과", bold=True, bg="D6E4F7", align_h="center")
+        _write_cell(ws, row,  14, "비고",             bold=True, bg=COLOR_HEADER_BG)
+        ws.row_dimensions[row].height = 14
+        row += 1
+        # 2행
+        _write_cell(ws, row, 2, "",       bold=True, bg=COLOR_HEADER_BG)
+        _write_cell(ws, row, 3, "",       bold=True, bg=COLOR_HEADER_BG)
+        for _ci, _lbl in enumerate(["입찰가","노출수","클릭수","비용","순위"]):
+            _write_cell(ws, row, 4+_ci, _lbl, bold=True, bg=COLOR_HEADER_BG)
+        for _ci, _lbl in enumerate(["입찰가","노출수","클릭수","비용","순위"]):
+            _write_cell(ws, row, 9+_ci, _lbl, bold=True, bg=COLOR_HEADER_BG)
+        _write_cell(ws, row, 14, "",      bold=True, bg=COLOR_HEADER_BG)
         ws.row_dimensions[row].height = 14
         row += 1
 
@@ -302,11 +322,6 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
             mo_clicks = _safe_int(kw_row.get("mo_sim_clicks", 0))
             mo_cost   = _safe_int(kw_row.get("mo_sim_cost", 0))
             mo_rank   = _safe_int(kw_row.get("proposed_rank_mo", 0))
-
-            show_pc = pc_bid > 0 or pc_impr > 0
-            show_mo = mo_bid > 0 or mo_impr > 0
-            if not show_pc and not show_mo:
-                show_pc = True  # 최소 1행 표시
 
             has_perf      = not fb and not not_selected
             has_rank_only = fb and not not_selected
@@ -338,44 +353,25 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
                 eff_tag = {"PC우위": "PC↑", "MO우위": "MO↑", "균등": "균등"}.get(dev_eff, "")
                 if eff_tag:
                     note = f"{note}·{eff_tag}" if note else eff_tag
-            keyword_str  = kw_row.get("keyword", "")
-            category_str = kw_row.get("category", "")
 
-            num_rows = (1 if show_pc else 0) + (1 if show_mo else 0)
-            first_data_row = row
+            # 키워드 1행에 PC+MO 나란히
+            _write_cell(ws, row,  2, kw_row.get("keyword", ""),  bg=bg, align_h="left")
+            _write_cell(ws, row,  3, kw_row.get("category", ""), bg=bg)
+            _write_cell(ws, row,  4, pc_bid if pc_bid else "",    bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row,  5, _v(pc_impr),                 bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row,  6, _v(pc_clicks),               bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row,  7, _v(pc_cost),                 bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row,  8, _v(pc_rank, is_rank=True),   bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row,  9, mo_bid if mo_bid else "",    bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row, 10, _v(mo_impr),                 bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row, 11, _v(mo_clicks),               bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row, 12, _v(mo_cost),                 bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row, 13, _v(mo_rank, is_rank=True),   bg=bg, num_fmt="#,##0")
+            _write_cell(ws, row, 14, note,                        bg=bg)
+            ws.row_dimensions[row].height = 15
+            row += 1
 
-            if show_pc:
-                _write_cell(ws, row, 2, keyword_str,               bg=bg, align_h="left")
-                _write_cell(ws, row, 3, category_str,              bg=bg)
-                _write_cell(ws, row, 4, "PC",                      bg=bg, bold=True)
-                _write_cell(ws, row, 5, pc_bid if pc_bid else "",  bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 6, _v(pc_impr),               bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 7, _v(pc_clicks),             bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 8, _v(pc_cost),               bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 9, _v(pc_rank, is_rank=True), bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 10, note if not show_mo else "", bg=bg)
-                ws.row_dimensions[row].height = 15
-                row += 1
-
-            if show_mo:
-                _write_cell(ws, row, 2, keyword_str,               bg=bg, align_h="left")
-                _write_cell(ws, row, 3, category_str,              bg=bg)
-                _write_cell(ws, row, 4, "MO",                      bg=bg, bold=True)
-                _write_cell(ws, row, 5, mo_bid if mo_bid else "",  bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 6, _v(mo_impr),               bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 7, _v(mo_clicks),             bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 8, _v(mo_cost),               bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 9, _v(mo_rank, is_rank=True), bg=bg, num_fmt="#,##0")
-                _write_cell(ws, row, 10, note,                     bg=bg)
-                ws.row_dimensions[row].height = 15
-                row += 1
-
-            # keyword/category 열을 PC+MO 행에 걸쳐 병합 (둘 다 있을 때)
-            if show_pc and show_mo:
-                ws.merge_cells(f"B{first_data_row}:B{first_data_row+1}")
-                ws.merge_cells(f"C{first_data_row}:C{first_data_row+1}")
-
-        # 카테고리 소계
+        # 카테고리 소계 (PC+MO 한 행)
         c_pc_imp  = sum(_safe_int(r.get("pc_sim_impressions",0)) for r in kws)
         c_pc_clk  = sum(_safe_int(r.get("pc_sim_clicks",0))      for r in kws)
         c_pc_cost = sum(_safe_int(r.get("pc_sim_cost",0))        for r in kws)
@@ -384,25 +380,18 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
         c_mo_cost = sum(_safe_int(r.get("mo_sim_cost",0))        for r in kws)
 
         ws.merge_cells(f"B{row}:C{row}")
-        _write_cell(ws, row, 2, f"◀ {cat} 소계 ({len(kws)}개)", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
-        _write_cell(ws, row, 4, "PC",        bold=True, bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 5, "",          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 6, c_pc_imp,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 7, c_pc_clk,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 8, c_pc_cost,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 9, "",          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 10, "",         bg=COLOR_SUBTOTAL_BG)
-        row += 1
-
-        ws.merge_cells(f"B{row}:C{row}")
-        _write_cell(ws, row, 2, "",          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 4, "MO",        bold=True, bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 5, "",          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 6, c_mo_imp,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 7, c_mo_clk,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 8, c_mo_cost,  bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-        _write_cell(ws, row, 9, "",          bg=COLOR_SUBTOTAL_BG)
-        _write_cell(ws, row, 10, "",         bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row,  2, f"◀ {cat} 소계 ({len(kws)}개)", bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
+        _write_cell(ws, row,  4, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row,  5, c_pc_imp,    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row,  6, c_pc_clk,    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row,  7, c_pc_cost,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row,  8, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row,  9, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 10, c_mo_imp,    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 11, c_mo_clk,    bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 12, c_mo_cost,   bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
+        _write_cell(ws, row, 13, "",          bg=COLOR_SUBTOTAL_BG)
+        _write_cell(ws, row, 14, "",          bg=COLOR_SUBTOTAL_BG)
         row += 2
 
     # 전체 PC/MO 예산 합계
@@ -414,7 +403,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
     _write_cell(ws, row, 2, "PC 캠페인 예산", bold=True, bg="E3F2FD", align_h="left")
     _write_cell(ws, row, 4, "",               bg="E3F2FD")
     _write_cell(ws, row, 5, total_pc_budget,  bold=True, bg="E3F2FD", num_fmt="#,##0")
-    for _c in [6, 7, 8, 9, 10]:
+    for _c in range(6, 15):
         _write_cell(ws, row, _c, "", bg="E3F2FD")
     ws.row_dimensions[row].height = 15
     row += 1
@@ -422,7 +411,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
     _write_cell(ws, row, 2, "MO 캠페인 예산", bold=True, bg="E8F5E9", align_h="left")
     _write_cell(ws, row, 4, "",               bg="E8F5E9")
     _write_cell(ws, row, 5, total_mo_budget,  bold=True, bg="E8F5E9", num_fmt="#,##0")
-    for _c in [6, 7, 8, 9, 10]:
+    for _c in range(6, 15):
         _write_cell(ws, row, _c, "", bg="E8F5E9")
     ws.row_dimensions[row].height = 15
     row += 1
@@ -430,7 +419,7 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
     _write_cell(ws, row, 2, "합계",           bold=True, bg=COLOR_SUBTOTAL_BG, align_h="left")
     _write_cell(ws, row, 4, "",               bg=COLOR_SUBTOTAL_BG)
     _write_cell(ws, row, 5, total_budget_sum, bold=True, bg=COLOR_SUBTOTAL_BG, num_fmt="#,##0")
-    for _c in [6, 7, 8, 9, 10]:
+    for _c in range(6, 15):
         _write_cell(ws, row, _c, "", bg=COLOR_SUBTOTAL_BG)
     ws.row_dimensions[row].height = 15
     row += 2

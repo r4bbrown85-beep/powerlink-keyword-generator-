@@ -207,49 +207,37 @@ def _build_buying_business_prompt(brand, category, products, competitors,
 ● 절대 제외: 관련 없는 카테고리 품목 (예: 중고 매입이어도 오토바이·가전·핸드폰 등 제외)
 ● 매입 대상 품목({products_str})과 직접 관련된 키워드만 생성
 
-━━━ 4개 광고 그룹 ━━━
+━━━ 광고 그룹 설계 ━━━
+이 매입 광고주에 맞는 3~4개 광고 그룹을 직접 설계한다. 타입은 4종만 허용된다.
 
-[브랜드 키워드] 15~25개
-{brand}를 이미 알고 직접 검색하는 사람 대상
+[brand 타입] 필수 1개 — {brand}를 직접 검색하는 사람, 15~25개
 → {brand} + 매입/구매/연락처/위치/후기
 → {korean_str} + 동일 조합
 
-[상품 키워드] 40~60개  ← 가장 중요
-구체적인 품목을 판매하려는 사람 대상
-→ 품목명 + 매입/팝니다/처분/판매/매각/업체
+[product 타입] 권장 1개 — 구체적 품목 판매 의도, 40~60개
+→ 품목명({products_str}) + 매입/팝니다/처분/판매/매각/업체
 → 품목명 + 중고/사용/실험실/연구소
-→ 품목명 단독 (중고 거래 의도 포함)
-→ 모델명/시리즈명 + 매입/팝니다
-→ 제조사 + 품목명 + 매입/처분
-→ 브랜드 + 품목명 + 팝니다/매각
+→ 모델명/시리즈명 + 매입/팝니다, 제조사+품목+처분
 
-[일반 키워드] 30~50개
-매입업체를 찾는 잠재 고객 (어떤 브랜드인지 모르는 상태)
+[general 타입] 권장 1개 — 브랜드 모르고 매입업체 찾는 검색, 30~50개
 → 중고 + {category} + 매입/처분/업체/전문
-→ 실험실/연구소/제약사/바이오 + {category} + 처분/판매
-→ {category} + 중고 + 팝니다/삽니다/업체
-→ 분야별 카테고리 장비 + 처분/매각/매입
+→ {category} + 팝니다/삽니다/업체/처분
 → "중고 장비 매입업체", "실험실 장비 처분" 류
 
-[경쟁사 키워드] 20~35개
-동종 매입업체를 검색하는 사람에게 노출
+[competitor 타입] 선택 1개 — 동종 매입업체 검색자 전환 유도, 20~35개
 → 경쟁 매입업체명 + 매입/가격/후기/비교
-→ 동종업체 + {category} + 매입
+
+그룹명은 한국어, 광고주 매입 업종에 맞게 구체적으로 명명한다.
+예: "{brand} 브랜드", "{products_str} 매입", "{category} 매입업체", "경쟁사"
+target_rank: brand=1, product=1~2, general=3~4, competitor=4~5
 
 ━━━ 출력 형식 (JSON만, 마크다운 없음) ━━━
 {{
-  "selected_categories": ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
-  "category_descriptions": {{
-    "브랜드 키워드": "한 문장",
-    "상품 키워드": "한 문장",
-    "일반 키워드": "한 문장",
-    "경쟁사 키워드": "한 문장"
-  }},
+  "category_configs": [
+    {{"name": "그룹명", "type": "brand|product|general|competitor", "target_rank": 1, "description": "한 문장"}}
+  ],
   "keywords_by_category": {{
-    "브랜드 키워드": ["키워드1", "키워드2"],
-    "상품 키워드": ["키워드1", "키워드2"],
-    "일반 키워드": ["키워드1", "키워드2"],
-    "경쟁사 키워드": ["키워드1", "키워드2"]
+    "그룹명": ["키워드1", "키워드2"]
   }}
 }}"""
 
@@ -284,7 +272,45 @@ _NEGATIVE_INTENT_PATTERNS = [
 _AI_CACHE_DIR  = Path("data/cache/ai_keywords")
 _AI_CACHE_DAYS = 7
 # 프롬프트·필터 로직 변경 시 이 값을 올리면 기존 캐시가 자동 무효화됨
-_AI_CACHE_VERSION = "v2"
+_AI_CACHE_VERSION = "v3"
+
+# ── 카테고리 타입별 bid_simulator 필드 기본값 ─────────────────────────────
+_CAT_TYPE_DEFAULTS = {
+    "brand":      {"priority": 1.30, "min_keywords": 5,  "target_rank": 1, "max_rank": 3,
+                   "max_single_ratio": 0.20, "cpc_factor": 1.10, "color": "BDD7EE"},
+    "product":    {"priority": 1.22, "min_keywords": 3,  "target_rank": 2, "max_rank": 5,
+                   "max_single_ratio": 0.15, "cpc_factor": 1.05, "color": "C6EFCE"},
+    "general":    {"priority": 1.00, "min_keywords": 3,  "target_rank": 3, "max_rank": 5,
+                   "max_single_ratio": 0.15, "cpc_factor": 1.00, "color": "FFF2CC"},
+    "competitor": {"priority": 0.88, "min_keywords": 0,  "target_rank": 4, "max_rank": 5,
+                   "max_single_ratio": 0.04, "cpc_factor": 0.90, "color": "FCE4D6",
+                   "max_budget_ratio": 0.15},
+}
+
+# AI 미반환 시 fallback 4개 카테고리
+_DEFAULT_CAT_CONFIGS_RAW = [
+    {"name": "브랜드 키워드", "type": "brand",      "target_rank": 1, "description": "브랜드 직접 검색 사용자"},
+    {"name": "상품 키워드",   "type": "product",    "target_rank": 2, "description": "구체적 제품 탐색 사용자"},
+    {"name": "일반 키워드",   "type": "general",    "target_rank": 3, "description": "카테고리 탐색 잠재 구매자"},
+    {"name": "경쟁사 키워드", "type": "competitor", "target_rank": 4, "description": "경쟁사 검색자 전환 유도"},
+]
+
+
+def _enrich_cat_configs(cat_cfgs_raw: list) -> list:
+    """AI 생성 category_configs에 bid_simulator 필요 필드 채우기."""
+    result = []
+    for i, cat in enumerate(cat_cfgs_raw):
+        t = str(cat.get("type", "general")).lower()
+        if t not in _CAT_TYPE_DEFAULTS:
+            t = "general"
+        enriched = _CAT_TYPE_DEFAULTS[t].copy()
+        enriched["name"]        = cat.get("name", f"카테고리{i+1}")
+        enriched["type"]        = t
+        enriched["target_rank"] = int(cat.get("target_rank", enriched["target_rank"]))
+        if "description" in cat:
+            enriched["description"] = cat["description"]
+        result.append(enriched)
+    return result
 
 
 def _get_ai_cache_key(profile: dict) -> str:
@@ -611,17 +637,21 @@ def generate_ai_keyword_plan(profile):
         )
         data = _safe_json_loads(content)
         keywords_by_category = data.get("keywords_by_category", {})
-        category_descriptions = data.get("category_descriptions", {})
-        selected_categories   = data.get("selected_categories", [])
+        cat_cfgs_raw         = data.get("category_configs", [])
         cleaned = _dedupe_keywords_by_category(keywords_by_category)
-        for cat in ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]:
-            cleaned.setdefault(cat, [])
-            category_descriptions.setdefault(cat, f"{cat} 중심의 검색 수요를 확보하기 위한 키워드")
+        if not cat_cfgs_raw:
+            cat_cfgs_raw = _DEFAULT_CAT_CONFIGS_RAW[:]
+        category_config = _enrich_cat_configs(cat_cfgs_raw)
+        for cat in category_config:
+            cleaned.setdefault(cat["name"], [])
         cleaned = _rule_based_brand_filter(cleaned, profile)
+        selected_categories   = [c["name"] for c in category_config]
+        category_descriptions = {c["name"]: c.get("description", "") for c in category_config}
         result = {
-            "selected_categories":   ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
+            "selected_categories":   selected_categories,
             "category_descriptions": category_descriptions,
-            "keywords_by_category":  cleaned
+            "category_config":       category_config,
+            "keywords_by_category":  cleaned,
         }
         _save_ai_cache(cache_key, brand, result)
         return result
@@ -658,53 +688,39 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
   (예: 게임명 "이클립스" → "이클립스포도", "이클립스캔디", "이클립스껌" 등 식품류 제외)
 ● 반드시 {category} 카테고리와 직접 연관된 검색 의도를 가진 키워드만 생성
 
-━━━ 4개 광고 그룹 ━━━
+━━━ 광고 그룹 설계 ━━━
+이 광고주에 맞는 3~5개 광고 그룹을 직접 설계한다. 타입은 4종만 허용된다.
 
-[브랜드 키워드] 10~15개
-{brand}를 이미 알고 직접 검색하는 구매 의향 사용자 대상
+[brand 타입] 필수 1개 — {brand} 직접 검색 사용자, 10~15개
 → {brand} + {category}/추천/가격/후기/구매/할인/비교 (실제 검색되는 조합만)
 → {korean_str} + 동일 조합
-→ 절대 금지: 브랜드명+무관 단어 임의 조합 (예: 브랜드명+food, +farm, +글로벌 등 실존하지 않는 조합)
-→ 실제 서비스/제품명으로 확인되지 않는 브랜드 변형어는 생성 금지
+→ 절대 금지: 브랜드명+무관 단어 임의 조합, 실존하지 않는 변형어
 → 제외: 주가·채용·공채·지역매장·{brand}의 다른 제품군
 
-[상품 키워드] 40~60개  ← 가장 중요, 반드시 충분히 생성
-{products_str}을 구체적으로 찾는 구매 직전 소비자 대상
-→ 브랜드 + 모델명, 모델명 단독(잘 알려진 경우)
-→ 브랜드 + 스펙(인치/용량/세대/처리속도 등)
-→ 브랜드 + 용도(게임용/업무용/학생용/영상편집용 등)
-→ 브랜드 + 특성(가성비/경량/고성능/슬림 등)
-→ 한글·영문·혼용 표기 모두 포함
-→ 제외: 이 캠페인 제품 외 {brand}의 모든 다른 제품
+[product 타입] 권장 1~2개 — {products_str} 구매 직전 소비자, 각 40~60개
+→ 브랜드 + 모델명/스펙/용도/특성 조합
+→ 구체적 제품명·서비스명 중심 (한글·영문·혼용 표기 포함)
+→ 제외: 이 캠페인 제품 외 {brand}의 다른 제품
 
-[일반 키워드] 40~60개
-{category}로 검색하는 브랜드 인지 전 잠재 구매자 대상
+[general 타입] 권장 1개 — {category} 카테고리 탐색 잠재 구매자, 40~60개
 → {category} 단독, 추천, 가격, 비교, 순위, 후기
-→ 스펙별: 다양한 크기·용량·인치·세대 + {category}
-→ 용도별: 게임용·사무용·학생용·디자인·영상편집 + {category}
-→ 특성별: 가성비·경량·고성능·슬림 + {category}
-→ 한글/영문/혼용 표기 쌍 포함
+→ 용도/특성/스펙별 {category} 조합 (한글/영문 표기 쌍)
 
-[경쟁사 키워드] 25~40개  ← 반드시 25개 이상
-{competitors_str} 검색자에게 노출하여 전환 유도
-→ 각 경쟁사 + {category}/모델/가격/추천/비교/구매
-→ 경쟁사당 최소 4개 이상 (경쟁사 목록이 짧으면 {category} 시장 주요 브랜드로 보완)
-→ 제외: 경쟁사 + 주가·채용·합병 등 비구매 키워드
+[competitor 타입] 선택 1개 — {competitors_str} 검색자 전환 유도, 25~40개
+→ 각 경쟁사 + {category}/모델/가격/추천/비교/구매 (경쟁사당 최소 4개)
+→ 경쟁사 목록이 짧으면 {category} 시장 주요 브랜드로 보완
+
+그룹명은 한국어, 이 광고주 업종에 맞게 구체적으로 명명한다.
+예: "{brand} 브랜드" / "{products_str} 제품" / "{category} 카테고리" / "경쟁사"
+target_rank: brand=1, product=1~2, general=2~4, competitor=4~5
 
 ━━━ 출력 형식 (JSON만, 마크다운 없음) ━━━
 {{
-  "selected_categories": ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
-  "category_descriptions": {{
-    "브랜드 키워드": "한 문장",
-    "상품 키워드": "한 문장",
-    "일반 키워드": "한 문장",
-    "경쟁사 키워드": "한 문장"
-  }},
+  "category_configs": [
+    {{"name": "그룹명", "type": "brand|product|general|competitor", "target_rank": 1, "description": "한 문장"}}
+  ],
   "keywords_by_category": {{
-    "브랜드 키워드": ["키워드1", "키워드2"],
-    "상품 키워드": ["키워드1", "키워드2"],
-    "일반 키워드": ["키워드1", "키워드2"],
-    "경쟁사 키워드": ["키워드1", "키워드2"]
+    "그룹명": ["키워드1", "키워드2"]
   }}
 }}"""
 
@@ -721,25 +737,28 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
     )
     data    = _safe_json_loads(content)
 
-    selected_categories   = data.get("selected_categories", [])
-    category_descriptions = data.get("category_descriptions", {})
-    keywords_by_category  = data.get("keywords_by_category", {})
+    cat_cfgs_raw         = data.get("category_configs", [])
+    keywords_by_category = data.get("keywords_by_category", {})
 
     cleaned = _dedupe_keywords_by_category(keywords_by_category)
-
-    for cat in ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]:
-        cleaned.setdefault(cat, [])
-        category_descriptions.setdefault(cat, f"{cat} 중심의 검색 수요를 확보하기 위한 키워드")
+    if not cat_cfgs_raw:
+        cat_cfgs_raw = _DEFAULT_CAT_CONFIGS_RAW[:]
+    category_config = _enrich_cat_configs(cat_cfgs_raw)
+    for cat in category_config:
+        cleaned.setdefault(cat["name"], [])
 
     # 1차: 규칙 기반 필터 (SNS, 부정의도, forbidden_fragments)
     cleaned = _rule_based_brand_filter(cleaned, profile)
     # 2차: AI 검증 — 동음이의어·무관 카테고리 키워드 제거 (Haiku로 빠르게)
     cleaned = _verify_keywords_by_ai(cleaned, brand, category, brand_identity, products)
 
+    selected_categories   = [c["name"] for c in category_config]
+    category_descriptions = {c["name"]: c.get("description", "") for c in category_config}
     result = {
-        "selected_categories":   ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"],
+        "selected_categories":   selected_categories,
         "category_descriptions": category_descriptions,
-        "keywords_by_category":  cleaned
+        "category_config":       category_config,
+        "keywords_by_category":  cleaned,
     }
 
     # 캐시 저장

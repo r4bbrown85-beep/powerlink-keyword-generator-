@@ -894,6 +894,11 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     plan                = generate_ai_keyword_plan(brand_profile)
     selected_categories = plan.get("selected_categories", [])
     category_desc       = plan.get("category_descriptions", {})
+    # AI 생성 카테고리 config → brand_profile에 반영 (optimize_budget cat_config으로 사용)
+    ai_cat_config = plan.get("category_config", [])
+    if ai_cat_config:
+        brand_profile["keyword_categories"] = ai_cat_config
+        print(f"  AI 카테고리 적용: {[c['name'] for c in ai_cat_config]}")
     ai_rows             = build_rows_from_ai_plan(plan, brand_profile)
     print(f"  AI 키워드: {len(ai_rows)}개")
 
