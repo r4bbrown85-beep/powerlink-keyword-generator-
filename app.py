@@ -2,7 +2,8 @@
 import streamlit as st
 import pandas as pd
 import json, os, sys, io
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+_KST = timezone(timedelta(hours=9))
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -610,7 +611,7 @@ if _page == "simulator":
 </div>
 """, unsafe_allow_html=True)
 
-            today = datetime.now().strftime("%Y%m%d")
+            today = datetime.now(_KST).strftime("%Y%m%d")
             st.markdown(f"""
 <div class="pl-dl-box">
   <div class="pl-dl-info">
@@ -1106,7 +1107,7 @@ if st.session_state.get("_gen_pending"):
             progress.progress((i + 1) / total)
 
         status.info("엑셀 파일 생성 중...")
-        ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts       = datetime.now(_KST).strftime("%Y%m%d_%H%M%S")
         filename = f"output/{client_name}_proposal_{ts}.xlsx"
         os.makedirs("output", exist_ok=True)
         save_multi_brand_excel(brand_results, filename, client_name)
