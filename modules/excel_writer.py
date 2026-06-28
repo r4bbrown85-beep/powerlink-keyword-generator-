@@ -29,6 +29,20 @@ def _cat_color(category, cat_config_map=None):
     return COLOR_CAT_GENERAL
 
 
+def _cat_sort_key(name):
+    """카테고리명을 브랜드→상품/제품→일반→경쟁사 순으로 정렬하는 키 함수."""
+    n = str(name)
+    if "브랜드" in n:                                 return 0
+    if "상품" in n or "제품" in n or "서비스" in n:    return 1
+    if "경쟁사" in n or "competitor" in n.lower():    return 3
+    return 2
+
+
+def _sorted_cats(cat_groups):
+    """cat_groups dict의 키를 카테고리 순서대로 반환."""
+    return sorted(cat_groups.keys(), key=_cat_sort_key)
+
+
 def _bd():
     s = Side(style="thin")
     return Border(left=s, right=s, top=s, bottom=s)
@@ -93,16 +107,13 @@ def save_proposal_excel(rows, recommended_rows, category_desc,
     ts          = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"output/{advertiser}_proposal_keywords_{ts}.xlsx"
 
-    CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
-
     # 예산외(not_selected) 키워드는 제안서 본문에서 제외
     # → 전체키워드 시트에는 남아있으므로 필요시 참고 가능
     rec_proposal = [r for r in recommended_rows if not r.get("not_selected", False)]
     rec_sorted = sorted(
         rec_proposal,
         key=lambda x: (
-            CAT_ORDER.index(x.get("category", "일반 키워드"))
-            if x.get("category", "일반 키워드") in CAT_ORDER else 99,
+            _cat_sort_key(x.get("category", "일반 키워드")),
             -_safe_int(x.get("sim_cost", 0))
         )
     )
@@ -261,14 +272,11 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
     row += 1
 
     # ── 카테고리별 키워드 출력 ─────────────────────────────
-    CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
     cat_groups = {}
     for r in rec_sorted:
         cat_groups.setdefault(r.get("category", "일반 키워드"), []).append(r)
 
-    for cat_num, cat in enumerate(CAT_ORDER, 1):
-        if cat not in cat_groups:
-            continue
+    for cat_num, cat in enumerate(_sorted_cats(cat_groups), 1):
         kws = cat_groups[cat]
         cc  = _cat_color(cat)
 
@@ -547,14 +555,11 @@ def _write_summary_sheet(ws, rec_sorted, advertiser, pc_budget=None, mo_budget=N
         _write_cell(ws, row, 2+i, h, bold=True, bg=COLOR_HEADER_BG)
     row += 1
 
-    CAT_ORDER = ["브랜드 키워드","상품 키워드","일반 키워드","경쟁사 키워드"]
     cat_groups = {}
     for r in rec_sorted:
         cat_groups.setdefault(r.get("category","일반 키워드"), []).append(r)
 
-    for cat in CAT_ORDER:
-        if cat not in cat_groups:
-            continue
+    for cat in _sorted_cats(cat_groups):
         kws = cat_groups[cat]
         bg  = _cat_color(cat)
         _write_cell(ws, row, 2, cat, bg=bg)
@@ -635,16 +640,13 @@ def _write_standby_sheet(ws, standby_rows, advertiser):
     row += 2
 
     # 카테고리별 정렬
-    CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
     cat_groups = {}
     for r in standby_rows:
         cat = r.get("category", "일반 키워드")
         cat_groups.setdefault(cat, []).append(r)
 
     total = 0
-    for cat in CAT_ORDER:
-        if cat not in cat_groups:
-            continue
+    for cat in _sorted_cats(cat_groups):
         kws = cat_groups[cat]
         cc  = _cat_color(cat)
 
@@ -808,7 +810,6 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
         row += 1
 
         # 카테고리별로 묶어서 출력
-        CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
         cat_groups = {}
         for r in new_kw_rows:
             cat = r.get("category", "일반 키워드")
@@ -819,9 +820,7 @@ def _write_expanded_sheet(ws, scenario_data, advertiser, recommended_rows):
         # 시나리오별 누적 비용: 카테고리를 넘어 전체 누적으로 포함여부 판단
         sc_cumul_carry = [0] * len(sc_budgets)
 
-        for cat in CAT_ORDER:
-            if cat not in cat_groups:
-                continue
+        for cat in _sorted_cats(cat_groups):
             kws = cat_groups[cat]
             cc  = _cat_color(cat)
             ws.merge_cells(f"B{row}:J{row}")
@@ -976,12 +975,10 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
     row += 1
 
     # 카테고리 순서
-    CAT_ORDER = ["브랜드 키워드", "상품 키워드", "일반 키워드", "경쟁사 키워드"]
     sorted_rows = sorted(
         optimal_rows,
         key=lambda x: (
-            CAT_ORDER.index(x.get("category","일반 키워드"))
-            if x.get("category","일반 키워드") in CAT_ORDER else 99,
+            _cat_sort_key(x.get("category", "일반 키워드")),
             -(x.get("recommendation_score", 50) or 50),
         )
     )
