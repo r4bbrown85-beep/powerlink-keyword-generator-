@@ -355,7 +355,8 @@ small, .st-emotion-cache-s1r2mm { color:#94A3B8 !important; font-size:12px !impo
 """, unsafe_allow_html=True)
 
 # ─── 인증 체크 (미인증 시 로그인 화면 표시 후 중단) ──────────────────────────────
-check_auth()
+# 2026-07 테스트 기간 동안 임시 비활성화 — 다시 켜려면 아래 줄 주석 해제
+# check_auth()
 
 # ─── 앱 바 ────────────────────────────────────────────────────────────────────
 st.markdown("""
