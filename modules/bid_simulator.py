@@ -357,7 +357,10 @@ def _build_fallback_options(keyword_row, total_budget=5_000_000, cat_map=None,
         base_cpc    = FALLBACK_CPC_BY_COMPETITION.get(competition, 350)
         base_cpc   *= float(cat_cfg.get("cpc_factor", 1.0))
         base_bid    = int(round(base_cpc / 10) * 10)
-        target_rank = int(cat_cfg.get("target_rank", 5))
+        # 이 옵션은 클릭/비용이 항상 0으로 추정되는 placeholder라, 순위를 낮게 표시할
+        # 실익이 없다 (예산과 무관하게 실제 비용 차이 없음). 다만 competitor 타입은
+        # "경쟁사 브랜드에 공격적으로 1위를 노리지 않는다"는 전략적 의도가 있으므로 유지.
+        target_rank = int(cat_cfg.get("target_rank", 5)) if cat_type == "competitor" else 1
 
         # PC 입찰가: median → max(median, exposure_min) → base
         if median_bid_pc > 0:
