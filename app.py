@@ -645,69 +645,20 @@ if _page == "simulator":
     st.stop()
 
 # ─────────────────────────────────────────────────────────────────
-# SECTION 1 · 광고주 기본 정보
+# 브랜드 개수 조절 — 즉시 반영이 필요해 폼 밖에 위치
 # ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="pl-sec">
-  <div class="pl-sec-num">1</div>
-  <div>
-    <div class="pl-sec-title">광고주 기본 정보</div>
-    <div class="pl-sec-desc">캠페인 전체 예산과 목표를 설정합니다</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
-
-col1, col2 = st.columns(2, gap="large")
-with col1:
-    client_name = st.text_input("광고주명 *", placeholder="예) LG전자", key="client_name_input")
-    monthly_budget = st.number_input(
-        "월 예산 (원) *",
-        min_value=100_000, max_value=100_000_000,
-        value=st.session_state.get("_prev_budget", 5_000_000),
-        step=100_000, format="%d", key="global_budget"
-    )
-    if monthly_budget != st.session_state.get("_prev_budget"):
-        st.session_state["_prev_budget"] = monthly_budget
-        for idx in range(len(st.session_state.get("brands", []))):
-            st.session_state[f"bgt_{idx}"] = monthly_budget
-with col2:
-    campaign_goals = st.multiselect(
-        "캠페인 목표",
-        [
-            "구매전환", "브랜드인지도", "트래픽 유입",
-            "신제품 출시", "앱 다운로드", "리타겟팅",
-            "시즌 프로모션", "리드 수집",
-            "사전예약/사전등록", "런칭/서비스 오픈", "신작/개봉 홍보",
-            "문의/상담 유도", "가입자수 확대", "무료체험 신청", "방문/예약 유도",
-        ],
-        default=["구매전환"],
-        key="campaign_goals_input",
-    )
-    new_product_info = ""
-    season_info = ""
-    if "신제품 출시" in campaign_goals:
-        new_product_info = st.text_input("신제품 정보",
-            placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시",
-            key="new_product_input")
-    if "시즌 프로모션" in campaign_goals:
-        season_info = st.text_input("시즌/이슈 내용",
-            placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인",
-            key="season_input")
+_bc1, _bc2 = st.columns(2)
+with _bc1:
+    if st.button("+ 브랜드 추가", use_container_width=True, key="add_brand_btn"):
+        st.session_state.brands.append({"monthly_budget": st.session_state.get("_prev_budget", 5_000_000)})
+        st.rerun()
+with _bc2:
+    if len(st.session_state.brands) > 1:
+        if st.button("마지막 브랜드 삭제", use_container_width=True, key="del_brand_btn"):
+            st.session_state.brands.pop()
+            st.rerun()
 
 st.divider()
-
-# ─────────────────────────────────────────────────────────────────
-# SECTION 2 · 브랜드 정보
-# ─────────────────────────────────────────────────────────────────
-st.markdown("""
-<div class="pl-sec">
-  <div class="pl-sec-num">2</div>
-  <div>
-    <div class="pl-sec-title">브랜드 정보</div>
-    <div class="pl-sec-desc">브랜드별로 독립된 제안서 시트가 생성됩니다. 여러 브랜드를 동시에 추가할 수 있습니다</div>
-  </div>
-</div>
-""", unsafe_allow_html=True)
 
 AWARENESS_MAP = {
     "신규 / 저인지도": "low",
@@ -882,28 +833,77 @@ def brand_form(idx, data={}):
             "campaign_notes":         campaign_notes,
         }
 
-brand_configs = []
-for i in range(len(st.session_state.brands)):
-    bc = brand_form(i, st.session_state.brands[i])
-    brand_configs.append(bc)
+with st.form("proposal_form", clear_on_submit=False):
+    # SECTION 1 · 광고주 기본 정보
+    st.markdown("""
+<div class="pl-sec">
+  <div class="pl-sec-num">1</div>
+  <div>
+    <div class="pl-sec-title">광고주 기본 정보</div>
+    <div class="pl-sec-desc">캠페인 전체 예산과 목표를 설정합니다</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-ca, cb = st.columns(2)
-with ca:
-    if st.button("+ 브랜드 추가", use_container_width=True, key="add_brand_btn"):
-        st.session_state.brands.append({"monthly_budget": monthly_budget})
-        st.rerun()
-with cb:
-    if len(st.session_state.brands) > 1:
-        if st.button("마지막 브랜드 삭제", use_container_width=True, key="del_brand_btn"):
-            st.session_state.brands.pop()
-            st.rerun()
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        client_name = st.text_input("광고주명 *", placeholder="예) LG전자", key="client_name_input")
+        monthly_budget = st.number_input(
+            "월 예산 (원) *",
+            min_value=100_000, max_value=100_000_000,
+            value=st.session_state.get("_prev_budget", 5_000_000),
+            step=100_000, format="%d", key="global_budget"
+        )
+        if monthly_budget != st.session_state.get("_prev_budget"):
+            st.session_state["_prev_budget"] = monthly_budget
+            for idx in range(len(st.session_state.get("brands", []))):
+                st.session_state[f"bgt_{idx}"] = monthly_budget
+    with col2:
+        campaign_goals = st.multiselect(
+            "캠페인 목표",
+            [
+                "구매전환", "브랜드인지도", "트래픽 유입",
+                "신제품 출시", "앱 다운로드", "리타겟팅",
+                "시즌 프로모션", "리드 수집",
+                "사전예약/사전등록", "런칭/서비스 오픈", "신작/개봉 홍보",
+                "문의/상담 유도", "가입자수 확대", "무료체험 신청", "방문/예약 유도",
+            ],
+            default=["구매전환"],
+            key="campaign_goals_input",
+        )
+        new_product_info = ""
+        season_info = ""
+        if "신제품 출시" in campaign_goals:
+            new_product_info = st.text_input("신제품 정보",
+                placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시",
+                key="new_product_input")
+        if "시즌 프로모션" in campaign_goals:
+            season_info = st.text_input("시즌/이슈 내용",
+                placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인",
+                key="season_input")
 
-st.divider()
+    st.divider()
 
-# ─────────────────────────────────────────────────────────────────
-# SECTION 3 · 제안서 생성
-# ─────────────────────────────────────────────────────────────────
-st.markdown("""
+    # SECTION 2 · 브랜드 정보
+    st.markdown("""
+<div class="pl-sec">
+  <div class="pl-sec-num">2</div>
+  <div>
+    <div class="pl-sec-title">브랜드 정보</div>
+    <div class="pl-sec-desc">브랜드별로 독립된 제안서 시트가 생성됩니다. 여러 브랜드를 동시에 추가할 수 있습니다</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+    brand_configs = []
+    for i in range(len(st.session_state.brands)):
+        bc = brand_form(i, st.session_state.brands[i])
+        brand_configs.append(bc)
+
+    st.divider()
+
+    # SECTION 3 · 제안서 생성
+    st.markdown("""
 <div class="pl-sec">
   <div class="pl-sec-num">3</div>
   <div>
@@ -913,7 +913,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown("""
+    st.markdown("""
 <div class="pl-info">
   <div class="pl-info-t">시작 전 확인사항</div>
   <div class="pl-info-b">
@@ -923,6 +923,12 @@ st.markdown("""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
+    if not st.session_state.brand_results:
+        _gen_btn = st.form_submit_button("⚡  제안서 생성 시작", type="primary", use_container_width=True)
+    else:
+        st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
+        _gen_btn = st.form_submit_button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
 
 _status_area = st.empty()
 
@@ -938,14 +944,7 @@ elif _ui_status == "error":
     _status_area.error(_ui_msg)
 # else: 비어 있음 (idle)
 
-if not st.session_state.brand_results:
-    _gen_btn = st.button("⚡  제안서 생성 시작", type="primary", use_container_width=True, key="gen_btn_initial")
-else:
-    st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
-    _gen_btn = st.button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True, key="gen_btn_regen")
-
-
-# AI 캐시 관리
+# AI 캐시 관리 (즉시 삭제·rerun 필요 — 폼 밖에 위치)
 with st.expander("AI 키워드 캐시 관리 (7일 유효)"):
     from modules.ai_keyword_generator import list_ai_cached_brands, clear_ai_cache_for_brand, clear_all_ai_cache, _AI_CACHE_VERSION as _CURRENT_CACHE_VER
     cached_brands = list_ai_cached_brands()
