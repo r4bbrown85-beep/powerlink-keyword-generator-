@@ -833,9 +833,9 @@ def brand_form(idx, data={}):
             "campaign_notes":         campaign_notes,
         }
 
-with st.form("proposal_form", clear_on_submit=False):
-    # SECTION 1 · 광고주 기본 정보
-    st.markdown("""
+# SECTION 1 · 광고주 기본 정보
+# (폼 밖에 위치 — 예산 입력 시 브랜드별 예산에 즉시 반영되어야 함)
+st.markdown("""
 <div class="pl-sec">
   <div class="pl-sec-num">1</div>
   <div>
@@ -845,45 +845,46 @@ with st.form("proposal_form", clear_on_submit=False):
 </div>
 """, unsafe_allow_html=True)
 
-    col1, col2 = st.columns(2, gap="large")
-    with col1:
-        client_name = st.text_input("광고주명 *", placeholder="예) LG전자", key="client_name_input")
-        monthly_budget = st.number_input(
-            "월 예산 (원) *",
-            min_value=100_000, max_value=100_000_000,
-            value=st.session_state.get("_prev_budget", 5_000_000),
-            step=100_000, format="%d", key="global_budget"
-        )
-        if monthly_budget != st.session_state.get("_prev_budget"):
-            st.session_state["_prev_budget"] = monthly_budget
-            for idx in range(len(st.session_state.get("brands", []))):
-                st.session_state[f"bgt_{idx}"] = monthly_budget
-    with col2:
-        campaign_goals = st.multiselect(
-            "캠페인 목표",
-            [
-                "구매전환", "브랜드인지도", "트래픽 유입",
-                "신제품 출시", "앱 다운로드", "리타겟팅",
-                "시즌 프로모션", "리드 수집",
-                "사전예약/사전등록", "런칭/서비스 오픈", "신작/개봉 홍보",
-                "문의/상담 유도", "가입자수 확대", "무료체험 신청", "방문/예약 유도",
-            ],
-            default=["구매전환"],
-            key="campaign_goals_input",
-        )
-        new_product_info = ""
-        season_info = ""
-        if "신제품 출시" in campaign_goals:
-            new_product_info = st.text_input("신제품 정보",
-                placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시",
-                key="new_product_input")
-        if "시즌 프로모션" in campaign_goals:
-            season_info = st.text_input("시즌/이슈 내용",
-                placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인",
-                key="season_input")
+col1, col2 = st.columns(2, gap="large")
+with col1:
+    client_name = st.text_input("광고주명 *", placeholder="예) LG전자", key="client_name_input")
+    monthly_budget = st.number_input(
+        "월 예산 (원) *",
+        min_value=100_000, max_value=100_000_000,
+        value=st.session_state.get("_prev_budget", 5_000_000),
+        step=100_000, format="%d", key="global_budget"
+    )
+    if monthly_budget != st.session_state.get("_prev_budget"):
+        st.session_state["_prev_budget"] = monthly_budget
+        for idx in range(len(st.session_state.get("brands", []))):
+            st.session_state[f"bgt_{idx}"] = monthly_budget
+with col2:
+    campaign_goals = st.multiselect(
+        "캠페인 목표",
+        [
+            "구매전환", "브랜드인지도", "트래픽 유입",
+            "신제품 출시", "앱 다운로드", "리타겟팅",
+            "시즌 프로모션", "리드 수집",
+            "사전예약/사전등록", "런칭/서비스 오픈", "신작/개봉 홍보",
+            "문의/상담 유도", "가입자수 확대", "무료체험 신청", "방문/예약 유도",
+        ],
+        default=["구매전환"],
+        key="campaign_goals_input",
+    )
+    new_product_info = ""
+    season_info = ""
+    if "신제품 출시" in campaign_goals:
+        new_product_info = st.text_input("신제품 정보",
+            placeholder="예) LG그램 Pro 2026, 초경량 AI 노트북, 2026년 5월 출시",
+            key="new_product_input")
+    if "시즌 프로모션" in campaign_goals:
+        season_info = st.text_input("시즌/이슈 내용",
+            placeholder="예) 여름 휴가 시즌, 블랙프라이데이 할인",
+            key="season_input")
 
-    st.divider()
+st.divider()
 
+with st.form("proposal_form", clear_on_submit=False):
     # SECTION 2 · 브랜드 정보
     st.markdown("""
 <div class="pl-sec">
