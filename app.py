@@ -645,20 +645,6 @@ if _page == "simulator":
 
     st.stop()
 
-# ─────────────────────────────────────────────────────────────────
-# 브랜드 개수 조절 — 즉시 반영이 필요해 폼 밖에 위치
-# ─────────────────────────────────────────────────────────────────
-_bc1, _bc2 = st.columns(2)
-with _bc1:
-    if st.button("+ 브랜드 추가", use_container_width=True, key="add_brand_btn"):
-        st.session_state.brands.append({"monthly_budget": st.session_state.get("_prev_budget", 5_000_000)})
-        st.rerun()
-with _bc2:
-    if len(st.session_state.brands) > 1:
-        if st.button("마지막 브랜드 삭제", use_container_width=True, key="del_brand_btn"):
-            st.session_state.brands.pop()
-            st.rerun()
-
 st.divider()
 
 AWARENESS_MAP = {
@@ -902,6 +888,16 @@ with st.form("proposal_form", clear_on_submit=False):
         bc = brand_form(i, st.session_state.brands[i])
         brand_configs.append(bc)
 
+    # 브랜드 추가/삭제 — 폼 안에서는 제출 버튼(form_submit_button)만 쓸 수 있어
+    # 일반 버튼 대신 이 방식으로 처리 (여러 개의 form_submit_button은 폼당 등록 가능)
+    _bc1, _bc2 = st.columns(2)
+    with _bc1:
+        _add_brand_clicked = st.form_submit_button("+ 브랜드 추가", use_container_width=True)
+    with _bc2:
+        _del_brand_clicked = False
+        if len(st.session_state.brands) > 1:
+            _del_brand_clicked = st.form_submit_button("마지막 브랜드 삭제", use_container_width=True)
+
     st.divider()
 
     # SECTION 3 · 제안서 생성
@@ -931,6 +927,13 @@ with st.form("proposal_form", clear_on_submit=False):
     else:
         st.info("💡 키워드 조정은 아래 **추천 키워드 상세**에서 체크박스·추가 키워드 수정 후 **재생성** 버튼을 클릭하세요. 브랜드 설정을 변경한 경우에만 아래 버튼을 사용하세요.")
         _gen_btn = st.form_submit_button("🔄  설정 변경 후 처음부터 재생성", use_container_width=True)
+
+if _add_brand_clicked:
+    st.session_state.brands.append({"monthly_budget": st.session_state.get("_prev_budget", 5_000_000)})
+    st.rerun()
+if _del_brand_clicked:
+    st.session_state.brands.pop()
+    st.rerun()
 
 _status_area = st.empty()
 
