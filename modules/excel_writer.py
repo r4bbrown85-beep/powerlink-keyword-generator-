@@ -15,7 +15,7 @@ COLOR_CAT_GENERAL = "FFF2CC"
 COLOR_CAT_COMP    = "FCE4D6"
 COLOR_HEADER_BG   = "D9E2F3"
 COLOR_SUBTOTAL_BG = "F2F2F2"
-COLOR_FALLBACK_BG = "FFF9C4"
+COLOR_FALLBACK_BG = "F3F4F6"   # 검색량 추정(비활성) 키워드 — 은은한 회색 (기존 강한 노랑 대체)
 
 
 def _cat_color(category, cat_config_map=None):
@@ -388,19 +388,21 @@ def _write_proposal_sheet(ws, rec_sorted, advertiser, category_desc, sa_memo=Non
                 if tag:
                     note = f"{note}  {tag}" if note else tag
 
-            _write_cell(ws, row,  2, kw_row.get("keyword", ""),    bg=row_bg, align_h="left", font_size=10)
-            _write_cell(ws, row,  3, kw_row.get("category", ""),   bg=row_bg, font_size=9)
-            _write_cell(ws, row,  4, pc_bid or "",                  bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row,  5, _v(pc_impr),                   bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row,  6, _v(pc_clks),                   bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row,  7, _v(pc_cst),                    bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row,  8, _v(pc_rnk, is_rank=True),      bg=row_bg)
-            _write_cell(ws, row,  9, mo_bid or "",                  bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row, 10, _v(mo_impr),                   bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row, 11, _v(mo_clks),                   bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row, 12, _v(mo_cst),                    bg=row_bg, num_fmt="#,##0")
-            _write_cell(ws, row, 13, _v(mo_rnk, is_rank=True),      bg=row_bg)
-            _write_cell(ws, row, 14, note,                          bg=row_bg, font_size=9)
+            # 검색량 추정(fallback) 행은 이탤릭+회색 글자로 은은하게 구분 (강한 색 채우기 대신)
+            _fb_fc = "8B95A1" if fb else "000000"
+            _write_cell(ws, row,  2, kw_row.get("keyword", ""),    bg=row_bg, align_h="left", font_size=10, italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  3, kw_row.get("category", ""),   bg=row_bg, font_size=9, italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  4, pc_bid or "",                  bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  5, _v(pc_impr),                   bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  6, _v(pc_clks),                   bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  7, _v(pc_cst),                    bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  8, _v(pc_rnk, is_rank=True),      bg=row_bg, italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row,  9, mo_bid or "",                  bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row, 10, _v(mo_impr),                   bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row, 11, _v(mo_clks),                   bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row, 12, _v(mo_cst),                    bg=row_bg, num_fmt="#,##0", italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row, 13, _v(mo_rnk, is_rank=True),      bg=row_bg, italic=fb, font_color=_fb_fc)
+            _write_cell(ws, row, 14, note,                          bg=row_bg, font_size=9, italic=fb, font_color=_fb_fc)
             _prop_fill_row(ws, row, LAST, bg=row_bg, height=16)
             row += 1
 
@@ -1011,7 +1013,8 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
         cc    = _cat_color(cat)
         tc    = _TIER_COLOR.get(tier, "F3F3F3")
         is_fb = r.get("is_fallback", False)
-        row_bg = "FFF9C4" if is_fb else cc
+        row_bg = COLOR_FALLBACK_BG if is_fb else cc
+        _fb_fc = "8B95A1" if is_fb else "000000"
 
         # 카테고리 구분선
         if cat != cur_cat:
@@ -1034,17 +1037,17 @@ def _write_optimal_sheet(ws, optimal_data, advertiser):
         if is_fb:
             kw_label += "  *"
 
-        _write_cell(ws, row, 2,  kw_label,                    bg=row_bg, align_h="left")
-        _write_cell(ws, row, 3,  cat,                          bg=row_bg)
+        _write_cell(ws, row, 2,  kw_label,                    bg=row_bg, align_h="left", italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 3,  cat,                          bg=row_bg, italic=is_fb, font_color=_fb_fc)
         _write_cell(ws, row, 4,  _TIER_LABEL.get(tier, ""),   bg=tc)
-        _write_cell(ws, row, 5,  pc_bid,  num_fmt="#,##0",     bg=row_bg)
-        _write_cell(ws, row, 6,  mo_bid,  num_fmt="#,##0",     bg=row_bg)
-        _write_cell(ws, row, 7,  pc_rank,                      bg=row_bg)
-        _write_cell(ws, row, 8,  mo_rank,                      bg=row_bg)
-        _write_cell(ws, row, 9,  pc_impr, num_fmt="#,##0",     bg=row_bg)
-        _write_cell(ws, row, 10, mo_impr, num_fmt="#,##0",     bg=row_bg)
-        _write_cell(ws, row, 11, pc_clk,  num_fmt="#,##0",     bg=row_bg)
-        _write_cell(ws, row, 12, mo_clk,  num_fmt="#,##0",     bg=row_bg)
+        _write_cell(ws, row, 5,  pc_bid,  num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 6,  mo_bid,  num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 7,  pc_rank,                      bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 8,  mo_rank,                      bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 9,  pc_impr, num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 10, mo_impr, num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 11, pc_clk,  num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
+        _write_cell(ws, row, 12, mo_clk,  num_fmt="#,##0",     bg=row_bg, italic=is_fb, font_color=_fb_fc)
         row += 1
 
     # 합계
