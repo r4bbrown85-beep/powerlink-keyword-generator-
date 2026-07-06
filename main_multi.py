@@ -229,7 +229,7 @@ def build_rows_from_ai_plan(plan, profile):
     return rows
 
 
-def pick_strong_suggest_seeds(rows, profile):
+def pick_strong_suggest_seeds(rows, profile, widen=1.0):
     seeds = []
     seeds.append(profile.get("brand_name", ""))
     for v in profile.get("brand_variants", []):
@@ -253,14 +253,16 @@ def pick_strong_suggest_seeds(rows, profile):
         if len(kw.split()) <= 3:
             seeds.append(kw)
     seeds = uniq_by_ad_keyword([normalize_seed_keyword(x) for x in seeds if x])
-    return seeds[:SUGGEST_SEED_LIMIT]
+    return seeds[:int(SUGGEST_SEED_LIMIT * widen)]
 
 
-def pick_related_seeds(rows, profile):
+def pick_related_seeds(rows, profile, widen=1.0):
     """
     연관 키워드 조회용 씨드 선정.
     카테고리 + 일반 키워드 위주 → 경쟁사 브랜드명은 제외
     (대형 경쟁사 브랜드를 seed로 쓰면 에어컨/냉장고 등 무관 제품 연관키워드가 대량 유입됨)
+
+    widen: 1.0보다 크면 씨드 폭을 넓힘 (예산 소진율이 낮을 때 재확장용)
     """
     seeds = []
 
@@ -278,11 +280,24 @@ def pick_related_seeds(rows, profile):
             seeds.append(f"{cat_word} {modifier}")
 
     # 2. AI가 생성한 일반 키워드 중 짧은 것 (2단어 이하)
-    general_rows = [r for r in rows
-                    if "일반" in r.get("category", "")
-                    and len(r["keyword"].split()) <= 2
-                    and r.get("source") == "ai_seed"]
-    for r in general_rows[:6]:
+    # 카테고리명은 AI가 광고주마다 다르게 짓는다(예: "조미김 카테고리", "김 카테고리").
+    # 이름 문자열에 "일반"이 포함되는지로 찾으면 AI가 다른 이름을 지었을 때 전부 놓치므로,
+    # keyword_categories의 type="general" 매핑을 우선 사용하고, 없을 때만 이름 매칭으로 폴백
+    _general_cat_names = {
+        c.get("name", "") for c in profile.get("keyword_categories", [])
+        if c.get("type") == "general"
+    }
+    if _general_cat_names:
+        general_rows = [r for r in rows
+                        if r.get("category", "") in _general_cat_names
+                        and len(r["keyword"].split()) <= 2
+                        and r.get("source") == "ai_seed"]
+    else:
+        general_rows = [r for r in rows
+                        if "일반" in r.get("category", "")
+                        and len(r["keyword"].split()) <= 2
+                        and r.get("source") == "ai_seed"]
+    for r in general_rows[:int(6 * widen)]:
         seeds.append(r["keyword"])
 
     # 3. 제품명 (카테고리 관련 제품)
@@ -299,11 +314,12 @@ def pick_related_seeds(rows, profile):
     # 에어컨/냉장고/TV 등 무관 제품 연관키워드가 대량 유입됨
 
     seeds = uniq_by_ad_keyword([x for x in seeds if x])
-    return seeds[:RELATED_SEED_LIMIT]
+    return seeds[:int(RELATED_SEED_LIMIT * widen)]
 
 
-def expand_with_suggest(rows, profile):
-    seeds = pick_strong_suggest_seeds(rows, profile)
+def expand_with_suggest(rows, profile, widen=1.0):
+    seeds = pick_strong_suggest_seeds(rows, profile, widen=widen)
+    per_source_limit = int(SUGGEST_PER_SOURCE_LIMIT * widen)
     expanded = []
     for kw in seeds:
         try:
@@ -314,18 +330,20 @@ def expand_with_suggest(rows, profile):
             google = get_google_suggestions(kw)
         except Exception:
             google = []
-        for s in naver[:SUGGEST_PER_SOURCE_LIMIT]:
+        for s in naver[:per_source_limit]:
             expanded.append((s, "naver_suggest"))
-        for s in google[:SUGGEST_PER_SOURCE_LIMIT]:
+        for s in google[:per_source_limit]:
             expanded.append((s, "google_suggest"))
     return expanded
 
 
-def expand_with_related_keywords(rows, profile):
+def expand_with_related_keywords(rows, profile, widen=1.0):
     """
     연관 키워드 확장.
     씨드를 5개씩 묶어서 네이버 키워드도구 방식으로 한 번에 조회.
     카테고리 키워드 위주 씨드로 풍부한 연관 키워드 확보.
+
+    widen: 1.0보다 크면 씨드 폭을 넓힘 (예산 소진율이 낮을 때 재확장용)
     """
     api_key = os.getenv("NAVER_API_KEY")
     secret  = os.getenv("NAVER_SECRET_KEY")
@@ -333,7 +351,7 @@ def expand_with_related_keywords(rows, profile):
     if not api_key or not secret or not cid:
         return []
 
-    seeds = pick_related_seeds(rows, profile)
+    seeds = pick_related_seeds(rows, profile, widen=widen)
     if not seeds:
         return []
 
@@ -992,6 +1010,59 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
         attach_budget_plan(recommended, total_budget, brand_profile=brand_profile,
                            pc_budget=pc_budget, mo_budget=mo_budget)
     print(f"  예상 총 비용: {total_cost:,}원")
+
+    # 7-1. 예산 소진율이 낮으면 확장 범위를 넓혀 한 번 더 시도.
+    # 원인이 AI의 카테고리 설계 폭이든, 실제 검색 수요가 낮은 브랜드든 상관없이
+    # "결과가 부족하면 더 넓게 찾아본다"는 원칙으로 특정 브랜드에 종속되지 않게 처리.
+    _utilization = total_cost / total_budget if total_budget else 1.0
+    if _utilization < 0.5:
+        print(f"  [예산소진] 소진율 {_utilization:.0%} — 확장 범위 넓혀 재시도")
+        _progress("키워드 확장 재시도 중...", 0.85)
+        widen_suggest = expand_with_suggest(rows, brand_profile, widen=2.0)
+        widen_suggest = filter_rows_by_brand_context(widen_suggest, brand_profile)
+        widen_related = expand_with_related_keywords(rows, brand_profile, widen=2.0)
+        widen_related = filter_rows_by_brand_context(widen_related, brand_profile)
+
+        rows2 = merge_all_rows(rows, widen_suggest, widen_related,
+                               selected_categories, brand_profile)
+        rows2 = filter_unrelated_keywords(rows2, brand_profile)
+        _fk2  = filter_ad_keywords([r["keyword"] for r in rows2])
+        _fs2  = {normalize_keyword_for_ad(x) for x in _fk2}
+        rows2 = [r for r in rows2 if normalize_keyword_for_ad(r["keyword"]) in _fs2]
+        if _exc_set:
+            rows2 = [r for r in rows2 if r.get("keyword", "").lower().replace(" ", "") not in _exc_set]
+
+        _added = len(rows2) - len(rows)
+        if _added > 0:
+            print(f"  [예산소진] 재확장으로 {_added}개 키워드 추가 확보 (재조회 포함 {len(rows2)}개)")
+            _sc2 = {k: s for k, s in score_keywords([r["keyword"] for r in rows2])}
+            for r in rows2:
+                r.setdefault("score", _sc2.get(r["keyword"], 50))
+
+            rows2 = attach_naver_stats(rows2)
+            for r in rows2:
+                kw = r.get("keyword", "")
+                r["already_registered"] = kw in registered_kws
+                if kw in actual_stats:
+                    r["actual_avg_rank"] = actual_stats[kw].get("avg_rank", 0)
+                    r["actual_ctr"]      = actual_stats[kw].get("ctr", 0)
+                    r["actual_clicks"]   = actual_stats[kw].get("clicks", 0)
+                r["recommendation_score"] = calc_recommendation_score(r)
+
+            rows2 = apply_category_caps(rows2)
+            recommended2 = sorted(rows2, key=lambda x: -x.get("recommendation_score", 0))
+            recommended2, total_cost2, standby_rows2, all_options_map2 = \
+                attach_budget_plan(recommended2, total_budget, brand_profile=brand_profile,
+                                   pc_budget=pc_budget, mo_budget=mo_budget)
+
+            if total_cost2 > total_cost:
+                print(f"  [예산소진] 재시도 결과: {total_cost:,}원 → {total_cost2:,}원")
+                rows, recommended, total_cost, standby_rows, all_options_map = \
+                    rows2, recommended2, total_cost2, standby_rows2, all_options_map2
+            else:
+                print(f"  [예산소진] 재시도해도 개선 없음({total_cost2:,}원) — 기존 결과 유지")
+        else:
+            print("  [예산소진] 재확장에서도 새 키워드를 찾지 못함")
 
     # 8. Summary
     summary = build_summary_text(brand_profile, rows, recommended)
