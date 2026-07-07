@@ -13,6 +13,11 @@
      NAVER_GFA_CLIENT_SECRET=...
   3. 네이버 성과형 디스플레이 광고 관리시스템 > 대표 관리 계정 > 설정 > API 관리에서
      위 Client ID를 등록해 API 사용 권한 신청 (승인 필요)
+
+주의: 공식 FAQ(https://naver-ad-api.github.io/openapi-guide/docs/faq) 기준, 위 3번의 Client ID
+상태가 "활성"으로 바뀌기 전에 이 스크립트를 먼저 실행해 로그인 동의를 해버리면 이후 인증이
+실패할 수 있음 — 이 경우 네이버 로그인 서비스 동의를 철회하고 재동의해야 함.
+반드시 GFA 관리시스템에서 Client ID 상태가 "활성"으로 바뀐 뒤에 실행할 것.
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')

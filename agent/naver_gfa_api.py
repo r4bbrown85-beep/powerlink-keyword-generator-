@@ -5,9 +5,16 @@
 OAuth 인증은 naver_gfa_auth_setup.py로 1회 실행해 config/gfa_token.json을 만들어둔 뒤 사용.
 access_token 만료 시 refresh_token으로 자동 갱신.
 
-주의: 이 프로젝트가 API 문서 전체(정확한 인증 헤더 형식·응답 스키마)에 접근하지 못한 상태에서
-작성됨. 아래 Authorization: Bearer 방식은 네이버 로그인 OAuth의 일반적인 사용법을 따른 것이라,
-실제 호출 시 401 등 오류가 나면 응답 메시지를 보고 헤더 형식을 조정해야 할 수 있음.
+인증 헤더 형식(Authorization: Bearer {액세스 토큰})은 공식 가이드
+(https://naver-ad-api.github.io/openapi-guide/docs/prepare/api-call-with-access-token)로 확인됨.
+
+주의(FAQ 기준, 위 가이드 /docs/faq): GFA Client ID가 "활성" 상태가 되기 전에 먼저 로그인 동의를
+해버리면 이후 인증이 실패할 수 있고, 이 경우 네이버 로그인 서비스 동의를 철회 후 재동의해야 함.
+따라서 naver_gfa_auth_setup.py는 GFA 관리시스템(대표 관리 계정 > 설정 > API 관리)에서
+해당 Client ID 상태가 "활성"으로 바뀐 뒤에 실행할 것.
+
+관리계정 멤버가 아니어도 관리계정 권한 레벨에 따라 하위 캠페인/광고그룹/소재 관리가 가능하며,
+이 경우 요청 헤더에 AccessManagerAccountNo(관리계정 ID)를 함께 전달해야 함.
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
