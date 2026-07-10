@@ -920,6 +920,17 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
     ai_rows             = build_rows_from_ai_plan(plan, brand_profile)
     print(f"  AI 키워드: {len(ai_rows)}개")
 
+    # 경쟁사 목록 중 키워드가 0개인 브랜드가 있으면 경고 (AI가 일부 경쟁사를 누락하는 경우 발견용)
+    _competitors = brand_profile.get("competitors", [])
+    if _competitors:
+        _ai_kw_text = " ".join(normalize_keyword_for_ad(r.get("keyword", "")) for r in ai_rows)
+        _missing_competitors = [
+            c for c in _competitors
+            if normalize_keyword_for_ad(c) and normalize_keyword_for_ad(c) not in _ai_kw_text
+        ]
+        if _missing_competitors:
+            print(f"  ⚠ 경쟁사 키워드 누락 의심: {_missing_competitors} (AI 생성 키워드에 미포함)")
+
     # 3. 자동완성 확장
     _progress("자동완성 키워드 확장 중...", 0.25)
     print("  [3] 자동완성 확장...")
@@ -1103,6 +1114,7 @@ def run_single_brand(brand_profile, brand_name, progress_cb=None):
         "mo_budget":         mo_budget,
         "rows":              rows,
         "recommended":       recommended,
+        "keyword_categories": brand_profile.get("keyword_categories", []),
         "category_desc":     category_desc,
         "sa_strategy_memo":  brand_profile.get("sa_strategy_memo", ""),
         "summary":           summary,
@@ -1225,6 +1237,7 @@ def run_budget_simulation(keywords: list, budget: int, client_name: str,
         "monthly_budget":  budget,
         "rows":            rows,
         "recommended":     recommended,
+        "keyword_categories": _sim_cat_config,
         "category_desc":   {},
         "summary":         summary,
         "standby_rows":    standby_rows,
@@ -1382,14 +1395,38 @@ def _write_overview_sheet(ws, brand_results, client_name):
             if not r.get("not_selected"):
                 c = r.get("category","")
                 cat_cnt[c] = cat_cnt.get(c,0) + 1
-        brand_kw   = sum(v for k,v in cat_cnt.items() if "브랜드" in k)
-        general_kw = sum(v for k,v in cat_cnt.items() if "일반" in k)
-        comp_kw    = sum(v for k,v in cat_cnt.items() if "경쟁사" in k)
+
+        # 카테고리명은 AI가 광고주마다 다르게 짓는다(예: "샌들·플랫슈즈·여성구두 제품").
+        # "경쟁사 브랜드"처럼 이름에 "브랜드"와 "경쟁사"가 동시에 들어가면 문자열
+        # 부분일치로는 중복/누락 집계가 발생하므로, keyword_categories의 type을
+        # 우선 사용하고 없을 때만 이름 매칭으로 폴백한다 (pick_related_seeds와 동일 패턴).
+        _cat_type_map = {
+            c.get("name", ""): c.get("type", "")
+            for c in result.get("keyword_categories", [])
+        }
+        if _cat_type_map:
+            brand_kw   = sum(v for k,v in cat_cnt.items() if _cat_type_map.get(k) == "brand")
+            general_kw = sum(v for k,v in cat_cnt.items() if _cat_type_map.get(k) in ("general", "product"))
+            comp_kw    = sum(v for k,v in cat_cnt.items() if _cat_type_map.get(k) == "competitor")
+        else:
+            brand_kw   = sum(v for k,v in cat_cnt.items() if "경쟁사" not in k and "브랜드" in k)
+            general_kw = sum(v for k,v in cat_cnt.items() if "일반" in k)
+            comp_kw    = sum(v for k,v in cat_cnt.items() if "경쟁사" in k)
         vals = [brand, total, est, fb, brand_kw, general_kw, comp_kw]
         for i, v in enumerate(vals):
             _cell(row, 2+i, v, align_h="left" if i == 0 else "center")
         ws.row_dimensions[row].height = 15
         row += 1
+
+    row += 1
+    ws.merge_cells(f"B{row}:H{row}")
+    _cell(row, 2,
+          "※ 상단 '1. 예산 요약'의 노출·클릭·비용은 '성과 예측 키워드'(네이버 성과예측 API 실측 데이터 확보)만 반영한 값입니다. "
+          "'입찰가 추정 키워드'는 검색량이 적어 실측이 불가해 카테고리 평균 기준 입찰가로만 제안되며, "
+          "예산·성과 수치에는 포함되지 않습니다.",
+          align_h="left", font_size=9, fg="6B6B6B")
+    ws.row_dimensions[row].height = 26
+    row += 1
 
 
 def save_multi_brand_excel(brand_results, filename, client_name, return_bytes=False):
