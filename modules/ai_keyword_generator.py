@@ -272,7 +272,7 @@ _NEGATIVE_INTENT_PATTERNS = [
 _AI_CACHE_DIR  = Path("data/cache/ai_keywords")
 _AI_CACHE_DAYS = 7
 # 프롬프트·필터 로직 변경 시 이 값을 올리면 기존 캐시가 자동 무효화됨
-_AI_CACHE_VERSION = "v7"
+_AI_CACHE_VERSION = "v8"
 
 # ── 카테고리 타입별 bid_simulator 필드 기본값 ─────────────────────────────
 _CAT_TYPE_DEFAULTS = {
