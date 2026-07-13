@@ -21,6 +21,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import os
 import json
+import ssl
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -28,6 +29,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
+
+# 회사 네트워크 SSL 검사(프록시) 우회 — modules/naver_suggest.py의 verify=False와 동일한 이유
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
 
 CLIENT_ID     = os.getenv("NAVER_GFA_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("NAVER_GFA_CLIENT_SECRET", "")
@@ -54,7 +60,7 @@ def _refresh_token(refresh_token: str) -> dict:
         "client_secret": CLIENT_SECRET,
         "refresh_token": refresh_token,
     })
-    with urllib.request.urlopen(url) as resp:
+    with urllib.request.urlopen(url, context=_SSL_CTX) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -88,7 +94,7 @@ def call_api(method: str, path: str, params: dict = None, body: dict = None) -> 
     data = json.dumps(body).encode("utf-8") if body else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, context=_SSL_CTX) as resp:
             return {"status": resp.status, "body": json.loads(resp.read().decode("utf-8"))}
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8", "ignore")

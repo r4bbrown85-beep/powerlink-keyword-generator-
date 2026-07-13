@@ -24,6 +24,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 import os
 import json
+import ssl
 import secrets
 import webbrowser
 import urllib.parse
@@ -34,6 +35,11 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
+
+# 회사 네트워크 SSL 검사(프록시) 우회 — modules/naver_suggest.py의 verify=False와 동일한 이유
+_SSL_CTX = ssl.create_default_context()
+_SSL_CTX.check_hostname = False
+_SSL_CTX.verify_mode = ssl.CERT_NONE
 
 CLIENT_ID     = os.getenv("NAVER_GFA_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("NAVER_GFA_CLIENT_SECRET", "")
@@ -102,7 +108,7 @@ def main():
         "state":         STATE,
     })
     try:
-        with urllib.request.urlopen(token_url) as resp:
+        with urllib.request.urlopen(token_url, context=_SSL_CTX) as resp:
             token_data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         print(f"[오류] 토큰 발급 요청 실패: {e.code} {e.read().decode('utf-8', 'ignore')}")
