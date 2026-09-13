@@ -173,7 +173,8 @@ def _build_buying_business_prompt(brand, category, products, competitors,
                                    identity_stmt, not_this_brand,
                                    doc_context: str = "",
                                    campaign_notes: str = "",
-                                   sa_strategy_memo: str = "") -> str:
+                                   sa_strategy_memo: str = "",
+                                   exclude_and_banned: list = None) -> str:
     """
     매입/구매 비즈니스 전용 키워드 생성 프롬프트.
     판매자(물건을 팔고 싶은 사람)가 검색할 키워드를 생성한다.
@@ -201,6 +202,7 @@ def _build_buying_business_prompt(brand, category, products, competitors,
 {notes_section}{strategy_section}{goal_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
+{f"● 다음 키워드/표현은 절대 생성하지 않는다(제외 키워드·심의 금지 표현): {', '.join(exclude_and_banned)}" if exclude_and_banned else ""}
 ● 타깃: "{products_str}을 처분/판매하려는 한국 사람이 네이버에서 검색할 키워드"
 ● 검색 의도: 팔고 싶다 / 처분하고 싶다 / 매각하고 싶다 / 매입업체를 찾는다
 ● 절대 제외: 매입 품목을 "구매하려는" 소비자 키워드 (반대 방향)
@@ -272,7 +274,7 @@ _NEGATIVE_INTENT_PATTERNS = [
 _AI_CACHE_DIR  = Path("data/cache/ai_keywords")
 _AI_CACHE_DAYS = 7
 # 프롬프트·필터 로직 변경 시 이 값을 올리면 기존 캐시가 자동 무효화됨
-_AI_CACHE_VERSION = "v8"
+_AI_CACHE_VERSION = "v9"  # 2026-09-14: 제외키워드/금지표현/타겟고객/로컬비즈니스/가격포지셔닝/기존키워드/인지도 반영
 
 # ── 카테고리 타입별 bid_simulator 필드 기본값 ─────────────────────────────
 _CAT_TYPE_DEFAULTS = {
@@ -319,6 +321,15 @@ def _get_ai_cache_key(profile: dict) -> str:
         "category":   profile.get("category", ""),
         "products":   sorted(profile.get("products", [])),
         "competitors": sorted(profile.get("competitors", [])),
+        "exclude_keywords": sorted(profile.get("exclude_keywords", [])),
+        "banned_terms":     sorted(profile.get("banned_terms", [])),
+        "target_age_groups": sorted(profile.get("target_age_groups", [])),
+        "target_gender":     profile.get("target_gender", ""),
+        "price_positioning": profile.get("price_positioning", ""),
+        "is_local_business": profile.get("is_local_business", False),
+        "local_regions":     sorted(profile.get("local_regions", [])),
+        "existing_keywords": sorted(profile.get("existing_keywords", [])),
+        "brand_awareness":   profile.get("brand_awareness", ""),
         "_v":          _AI_CACHE_VERSION,
     }
     key_str  = json.dumps(key_fields, ensure_ascii=False, sort_keys=True)
@@ -445,6 +456,7 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
     - SNS 플랫폼 이름 제거 (SNS 툴 브랜드 제외)
     - 구매 의도 없는 폐기/공짜 패턴 제거
     - brand_identity.forbidden_fragments에 명시된 단어 포함 키워드 제거
+    - 사용자가 지정한 제외 키워드 / 금지 표현(심의 등) 포함 키워드 제거
     """
     brand_identity     = profile.get("brand_identity", {})
     forbidden_raw      = brand_identity.get("forbidden_fragments", [])
@@ -456,6 +468,12 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
     competitors_lower  = [
         c.lower().strip() for c in profile.get("competitors", [])
         if isinstance(c, str) and len(c.strip()) >= 3
+    ]
+    # 사용자 지정 제외 키워드 + 금지 표현(심의 등) — 부분일치로 하드 필터
+    user_exclude_lower = [
+        e.lower().strip() for e in
+        (profile.get("exclude_keywords", []) + profile.get("banned_terms", []))
+        if isinstance(e, str) and e.strip()
     ]
 
     removed = []
@@ -494,6 +512,13 @@ def _rule_based_brand_filter(keywords_by_category: dict, profile: dict) -> dict:
             if not skip and forbidden_lower:
                 for frag in forbidden_lower:
                     if frag in kw_lower and brand_lower not in kw_lower:
+                        skip = True
+                        break
+
+            # 사용자 지정 제외 키워드 / 금지 표현 (심의 등) — 예외 없이 무조건 제거
+            if not skip and user_exclude_lower:
+                for term in user_exclude_lower:
+                    if term in kw_lower:
                         skip = True
                         break
 
@@ -592,6 +617,13 @@ def generate_ai_keyword_plan(profile):
     doc_context      = profile.get("doc_context", "")        # PDF/문서 추출 텍스트
     campaign_notes   = profile.get("campaign_notes", "")    # 사용자 캠페인 메모
     sa_strategy_memo = profile.get("sa_strategy_memo", "")  # 자동 생성 SA 전략 브리핑
+    target_age_groups = profile.get("target_age_groups", [])
+    target_gender     = profile.get("target_gender", "무관")
+    price_positioning = profile.get("price_positioning", "설정 안 함")
+    is_local_business = profile.get("is_local_business", False)
+    local_regions     = profile.get("local_regions", [])
+    existing_keywords = profile.get("existing_keywords", [])
+    brand_awareness   = profile.get("brand_awareness", "low")  # low/medium/high
 
     # 브랜드 정체성 문서 (setup_profile에서 생성)
     brand_identity = profile.get("brand_identity", {})
@@ -621,7 +653,8 @@ def generate_ai_keyword_plan(profile):
         user_msg = _build_buying_business_prompt(
             brand, category, products, competitors,
             korean_str, must_str, campaign_goal,
-            identity_stmt, not_this_brand, doc_context, campaign_notes, sa_strategy_memo
+            identity_stmt, not_this_brand, doc_context, campaign_notes, sa_strategy_memo,
+            exclude_and_banned=(profile.get("exclude_keywords", []) + profile.get("banned_terms", []))
         )
         content = _call_llm(
             system=(
@@ -662,6 +695,62 @@ def generate_ai_keyword_plan(profile):
     strategy_section = f"\n━━━ SA 전략 인사이트 (자동 분석) ━━━\n{sa_strategy_memo}\n" if sa_strategy_memo else ""
     goal_section     = _build_goal_guidance(campaign_goal)
 
+    # ── 타겟 고객 (연령/성별) ───────────────────────────────────────────
+    audience_bits = []
+    if target_age_groups:
+        audience_bits.append(", ".join(target_age_groups))
+    if target_gender and target_gender != "무관":
+        audience_bits.append(target_gender)
+    audience_section = (
+        f"\n━━━ 타겟 고객 ━━━\n{' / '.join(audience_bits)} — 이 타겟이 실제로 검색할 법한 "
+        f"어휘·표현(연령대별 말투, 성별 관심사 반영)을 우선한다\n"
+    ) if audience_bits else ""
+
+    # ── 가격 포지셔닝 ────────────────────────────────────────────────
+    price_section = ""
+    if price_positioning == "프리미엄/고급":
+        price_section = "\n━━━ 가격 포지셔닝 ━━━\n프리미엄/고급 — '프리미엄', '고급', '명품' 등 고가 포지셔닝 수식어를 general/product 키워드에 적절히 섞는다. '저렴한', '가성비' 계열은 이 브랜드와 맞지 않으므로 생성하지 않는다\n"
+    elif price_positioning == "가성비/저렴":
+        price_section = "\n━━━ 가격 포지셔닝 ━━━\n가성비/저렴 — '가성비', '저렴한', '최저가' 등 가격 민감 수식어를 general/product 키워드에 적절히 섞는다. '프리미엄', '명품' 계열은 이 브랜드와 맞지 않으므로 생성하지 않는다\n"
+
+    # ── 로컬(지역) 비즈니스 ─────────────────────────────────────────────
+    local_section = ""
+    if is_local_business:
+        region_str = ", ".join(local_regions) if local_regions else "특정 지역"
+        local_section = (
+            f"\n━━━ 지역 기반 비즈니스 ━━━\n이 광고주는 오프라인 매장/지점을 운영하는 지역 기반 비즈니스다. "
+            f"주요 상권: {region_str}\n"
+            f"→ general 타입에 '지역명 + {category}' 조합(예: 강남 {category}, 분당 {category})을 "
+            f"반드시 포함한다 — 지역명이 없으면 언급된 각 지역에 대해 최소 2~3개씩 생성\n"
+            f"→ brand 타입에도 '지역명 + 브랜드명' 조합을 소량 포함한다\n"
+        )
+
+    # ── 브랜드 인지도 ────────────────────────────────────────────────
+    awareness_section = {
+        "low": (
+            "\n━━━ 브랜드 인지도: 신규/저인지도 ━━━\n"
+            "이 브랜드는 아직 인지도가 낮다. brand 타입 키워드 비중은 낮게(목표 개수 하한 위주),\n"
+            "general 타입(카테고리 탐색형)에 더 힘을 실어 '아직 이 브랜드를 모르지만 카테고리는 찾고 있는' 사용자를 잡는다\n"
+        ),
+        "medium": "",
+        "high": (
+            "\n━━━ 브랜드 인지도: 높음 ━━━\n"
+            "이 브랜드는 인지도가 높다. brand 타입에서 브랜드명 단독 검색, 브랜드명+구매동사(구매/주문/가격) "
+            "조합처럼 이미 브랜드를 알고 지갑을 여는 단계의 키워드 비중을 늘린다\n"
+        ),
+    }.get(brand_awareness, "")
+
+    # ── 기존 운영 키워드 성과 (있으면 최우선 신호) ───────────────────────
+    existing_kw_section = ""
+    if existing_keywords:
+        existing_kw_section = (
+            f"\n━━━ 기존 운영 검증 키워드 (실제 성과 데이터 기반, 최우선 참고) ━━━\n"
+            f"{', '.join(existing_keywords[:60])}\n"
+            f"→ 위 키워드는 실제로 검색·클릭이 검증된 키워드다. 동일 패턴(어순·조합 방식)의 "
+            f"유사 키워드를 적극적으로 확장 생성한다. 위 목록 중 이미 있는 것과 완전히 동일한 "
+            f"키워드는 중복 생성하지 않는다\n"
+        )
+
     # 광고주 브리핑 → 소비자 구매 검색 시뮬레이션 방식
     user_msg = f"""아래 광고주가 네이버 파워링크 광고를 집행한다.
 SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를 제안해줘.
@@ -675,9 +764,10 @@ SEO/SEM 전문가 관점에서 이 광고주의 최적 검색광고 키워드를
 {f"브랜드 정의: {identity_stmt}" if identity_stmt else ""}
 {f"이 캠페인이 아닌 것 (제외 대상): {not_this_brand}" if not_this_brand else ""}
 {f"반드시 포함할 키워드: {must_str}" if must_str != "없음" else ""}
-{notes_section}{strategy_section}{goal_section}{doc_section}
+{notes_section}{strategy_section}{goal_section}{audience_section}{price_section}{local_section}{awareness_section}{existing_kw_section}{doc_section}
 
 ━━━ 핵심 원칙 ━━━
+{f"● 다음 키워드/표현은 절대 생성하지 않는다(제외 키워드·심의 금지 표현): {', '.join(profile.get('exclude_keywords', []) + profile.get('banned_terms', []))}" if (profile.get('exclude_keywords') or profile.get('banned_terms')) else ""}
 ● "{products_str}을 구매하려는 한국 소비자가 네이버에서 실제로 검색할 검색어"만 생성한다
 ● {brand}의 다른 제품군은 이 캠페인과 무관 → 완전 제외
 ● 구매 의도 없는 검색어 (뉴스·주가·채용·SNS·학술·뜻·폐기 등) 완전 제외

@@ -22,6 +22,48 @@ def _split_keywords(text: str) -> list[str]:
     import re
     return [k.strip() for k in re.split(r'[,\n\t]+', text or "") if k.strip()]
 
+_KEYWORD_COL_HINTS = ["키워드", "검색어", "keyword", "query"]
+_METRIC_COL_HINTS  = ["클릭", "노출", "전환", "click", "impr", "conv"]
+
+def _parse_existing_keyword_file(uploaded_file, top_n: int = 60) -> tuple[list[str], str]:
+    """기존 운영 키워드 성과 파일(CSV/XLSX)에서 키워드 컬럼을 찾아 상위 키워드 목록을 추출.
+    지표 컬럼(클릭/노출/전환)이 있으면 그 합산 기준 상위 top_n, 없으면 앞에서부터 top_n."""
+    name = uploaded_file.name.lower()
+    try:
+        if name.endswith(".csv"):
+            try:
+                df = pd.read_csv(uploaded_file, encoding="utf-8-sig")
+            except UnicodeDecodeError:
+                uploaded_file.seek(0)
+                df = pd.read_csv(uploaded_file, encoding="cp949")
+        else:
+            df = pd.read_excel(uploaded_file)
+    except Exception as e:
+        return [], f"(파일을 읽지 못했습니다: {e})"
+
+    df.columns = [str(c).strip() for c in df.columns]
+    kw_col = next((c for c in df.columns if any(h in c.lower() for h in _KEYWORD_COL_HINTS)), None)
+    if not kw_col:
+        return [], "(키워드 컬럼을 찾지 못했습니다 — '키워드' 또는 '검색어'가 포함된 열 이름이 필요합니다)"
+
+    metric_cols = [c for c in df.columns if any(h in c.lower() for h in _METRIC_COL_HINTS)]
+    if metric_cols:
+        for c in metric_cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        df["_score"] = df[metric_cols].sum(axis=1)
+        df = df.sort_values("_score", ascending=False)
+
+    kws = [str(k).strip() for k in df[kw_col].dropna().tolist() if str(k).strip()]
+    seen = set()
+    uniq = []
+    for k in kws:
+        if k not in seen:
+            seen.add(k)
+            uniq.append(k)
+    top = uniq[:top_n]
+    summary = f"{len(uniq)}개 키워드 중 상위 {len(top)}개 추출" + (" (지표 기준 정렬)" if metric_cols else " (파일 순서 기준)")
+    return top, summary
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 st.set_page_config(
@@ -736,6 +778,92 @@ def brand_form(idx, data={}):
                 {"keyword": k.strip(), "target_rank": 3, "device": "BOTH"}
                 for k in _split_keywords(must_kws) if k.strip()
             ]
+            exclude_kws = st.text_area(
+                "제외 키워드 (생성에서 빼야 할 키워드)",
+                value="\n".join(data.get("exclude_keywords", [])),
+                key=f"exclude_{idx}",
+                placeholder="예) 중고\n채용\nAS센터\n(줄바꿈·쉼표·탭 모두 가능)",
+                height=90,
+                help="이미 확인된 무관 키워드, 다른 캠페인에서 쓰는 키워드 등 — 결과에서 완전히 제외됩니다",
+            )
+            exclude_list = _split_keywords(exclude_kws)
+
+        # ── 타겟 고객 / 포지셔닝 ─────────────────────────────────────────
+        tc1, tc2, tc3 = st.columns(3, gap="medium")
+        with tc1:
+            age_groups = st.multiselect(
+                "타겟 연령대",
+                ["10대", "20대", "30대", "40대", "50대", "60대 이상"],
+                default=data.get("target_age_groups", []),
+                key=f"age_{idx}",
+            )
+        with tc2:
+            gender = st.selectbox(
+                "타겟 성별",
+                ["무관", "여성", "남성"],
+                index=["무관", "여성", "남성"].index(data.get("target_gender", "무관")),
+                key=f"gender_{idx}",
+            )
+        with tc3:
+            PRICE_LABELS = ["설정 안 함", "프리미엄/고급", "중가/보통", "가성비/저렴"]
+            price_positioning = st.selectbox(
+                "가격 포지셔닝",
+                PRICE_LABELS,
+                index=PRICE_LABELS.index(data.get("price_positioning", "설정 안 함")),
+                key=f"price_{idx}",
+                help="프리미엄/고급 vs 가성비/저렴에 따라 키워드 수식어(고급·프리미엄 vs 저렴·가성비)가 달라집니다",
+            )
+
+        # 주의: st.form 내부 위젯은 제출 전까지 재실행되지 않으므로, 체크박스 값에 따라
+        # 다른 위젯을 나타냈다 숨겼다 하는 조건부 렌더링을 쓰지 않는다(제출 전엔 항상 그대로
+        # 보임) — 대신 지역 입력란을 상시 노출하고 값 사용 여부만 체크박스로 제어한다.
+        lc1, lc2 = st.columns([1, 2], gap="medium")
+        with lc1:
+            is_local_business = st.checkbox(
+                "지역 기반 오프라인 비즈니스",
+                value=data.get("is_local_business", False),
+                key=f"local_chk_{idx}",
+                help="병원·학원·매장 등 특정 지역 상권을 대상으로 하는 경우 체크",
+            )
+        with lc2:
+            local_regions_raw = st.text_input(
+                "주요 지역/상권 (쉼표로 구분)",
+                value=", ".join(data.get("local_regions", [])),
+                key=f"local_regions_{idx}",
+                placeholder="예) 강남, 분당, 판교 — 위 체크박스를 켜야 반영됩니다",
+            )
+        local_regions = [r.strip() for r in local_regions_raw.split(",") if r.strip()] if is_local_business else []
+
+        banned_terms_raw = st.text_area(
+            "금지 표현 / 심의 주의사항",
+            value="\n".join(data.get("banned_terms", [])),
+            key=f"banned_{idx}",
+            placeholder="예) 효과\n치료\n완치\n(의료·건강기능식품·금융 등 심의 규정상 쓸 수 없는 표현)",
+            height=70,
+            help="여기 적힌 표현이 포함된 키워드는 생성 결과에서 자동 제거됩니다",
+        )
+        banned_terms_list = _split_keywords(banned_terms_raw)
+
+        # ── 기존 운영 키워드 성과 업로드 ─────────────────────────────────
+        existing_kw_file = st.file_uploader(
+            "기존 운영 키워드 성과 업로드 (CSV / XLSX, 선택)",
+            type=["csv", "xlsx"],
+            key=f"perf_{idx}",
+            help="'키워드' 열이 포함된 파일 — 클릭/노출/전환 열이 있으면 상위 성과 키워드부터 우선 반영합니다",
+        )
+        existing_keywords_context = []
+        if existing_kw_file is not None:
+            _perf_cache_key = f"perf_result_{idx}"
+            _sig = f"{existing_kw_file.name}_{existing_kw_file.size}"
+            _cached_perf = st.session_state.get(_perf_cache_key)
+            if _cached_perf and _cached_perf.get("sig") == _sig:
+                existing_keywords_context = _cached_perf["keywords"]
+                st.caption(f"기존 키워드 반영: {_cached_perf['summary']}")
+            else:
+                kws, summary = _parse_existing_keyword_file(existing_kw_file)
+                existing_keywords_context = kws
+                st.session_state[_perf_cache_key] = {"sig": _sig, "keywords": kws, "summary": summary}
+                st.caption(summary if kws else summary)
 
         # ── 캠페인 특이사항 ──────────────────────────────────────────────
         campaign_notes = st.text_area(
@@ -807,15 +935,19 @@ def brand_form(idx, data={}):
             "product_lines":          [],
             "general_keyword_themes": [],
             "keyword_categories":     [],
-            "exclude_keywords":       [],
+            "exclude_keywords":       exclude_list,
             "monthly_budget":         brand_budget,
             "pc_budget":              pc_budget_val,
             "mo_budget":              mo_budget_val,
             "brand_awareness":        awareness,
-            "competitor_budget_ratio": 0.1,
-            "target_rank_general":    [3, 4, 5],
-            "target_rank_brand":      [1, 2, 3],
             "brand_urls":             url_list,
+            "target_age_groups":      age_groups,
+            "target_gender":          gender,
+            "price_positioning":      price_positioning,
+            "is_local_business":      is_local_business,
+            "local_regions":          local_regions,
+            "banned_terms":           banned_terms_list,
+            "existing_keywords":      existing_keywords_context,
             "doc_context":            doc_context,
             "campaign_notes":         campaign_notes,
         }
