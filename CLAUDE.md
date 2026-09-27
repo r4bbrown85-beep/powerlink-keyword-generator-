@@ -1,7 +1,7 @@
-# 미디어채널2팀 업무 자동화 프로젝트
+# 미디어채널팀 업무 자동화 프로젝트
 
 ## 담당자
-- 유승환 (미디어채널2팀 팀장, 나스미디어)
+- 유승환 (미디어채널팀 팀장, 나스미디어) — 2026-08-10 채널1팀·채널2팀 통합으로 팀명 변경
 
 ---
 
@@ -14,18 +14,19 @@
   - URL: https://docs.google.com/spreadsheets/d/1ZXkhrtGGFMCVzEP-PEBqra7mAcY0ob8FL_jWXL5KWIs/edit?gid=2011819062#gid=2011819062
   - 시트명: `26년 주간회의록`
   - API 인증: `config/briefing_token.json`
-  - 매체 섹션 순서: 네이버 → 메타 → 당근 → 토스 → 크리테오 → 오픈AI → 버티컬·기타
+  - ⚠️ 2026-08-10 채널1·2팀 통합(미디어채널팀)으로 매체 섹션 순서 갱신: 구글 → 네이버 → 메타 → 카카오 → 토스 → 오픈AI → 크리테오 → (X·쿠팡 등 그 주 있으면) → 미팅&설명회. 상세는 `회의록_변환_가이드.md` 참고
 
-### 출력 파일
+### 출력 파일 (2026-08-23 개편: 실장_회의록 시트 폐지)
 - 저장 위치: `C:\Users\Administrator\Desktop\0.팀 운영 관련 업무\주간 회의록 관련\`
 - 파일명 예시: `회의록정리_0626.xlsx` (날짜는 해당 주차 날짜)
-- 3개 시트: **본부_회의록** / **실장_회의록** / **전체_원본정리**
+- **2개 시트만: 본부_회의록 / 전체_원본정리** (실장_회의록 시트는 더 이상 만들지 않음)
 
 ### 붙여넣기 대상
 | 시트 | 대상 Google Sheet | 탭 |
 |------|-----------------|-----|
-| 본부_회의록 | 미디어본부 Worksheet | 주간회의 탭 → 채널2팀 섹션 |
-| 실장_회의록 | 실장 주간회의록 미디어채널실 | 미디어채널2팀(유승환) 섹션 |
+| 본부_회의록 | 미디어본부 Worksheet | 주간회의 탭 → 미디어채널팀 섹션 |
+
+**실장_회의록(실장 주간회의록 미디어채널실)은 더 이상 팀장이 직접 작성하지 않는다.** 실장님이 상단 취급고 표는 직접 채우고, 하단 Media Issues/Issue Report는 본부_회의록을 참고해 실장님이 직접 작성하는 구조로 바뀜(2026-08-23 확인). 팀장/Claude 작업 범위에서 제외.
 
 ### 작업 원칙
 1. **반드시 팀 주간 회의록 시트를 Sheets API로 직접 읽어 실제 데이터 기반으로 작성** (추정/창작 금지)
@@ -51,12 +52,6 @@
 |---------|-------|---------|---------|---------|------------|
 | 7 | 10 | 10 | 15 | 62 | 32 |
 
-### 실장_회의록 열 넓이
-| A(팀) | B(매체) | C(내용) |
-|-------|---------|---------|
-| 13 | 10 | 88 |
-- 실장_회의록 모든 행 높이: **16.5** (각 줄을 별도 행으로 분리)
-
 ### 전체_원본정리 열 넓이
 | A(매체) | B(구분) | C(내용) |
 |---------|---------|---------|
@@ -65,7 +60,7 @@
 ---
 
 ## 실행 스크립트
-- 최신 스크립트: `C:\Users\Administrator\AppData\Local\Temp\make_minutes_v5.py`
+- ⚠️ `C:\Users\Administrator\AppData\Local\Temp\make_minutes_v5.py`는 **재사용 템플릿이 아니다** — 2026-06-27에 06/29 주차 전용으로 하드코딩해서 만든 1회성 산출물(팀명 "미디어채널2팀", 3시트 구조 포함해 그 주 데이터가 그대로 박혀 있음). 그대로 재실행하거나 복사해서 쓰지 말 것. 매주 새로 스크립트를 짜거나 win32com/openpyxl로 직접 작성하되, **가이드(`회의록_변환_가이드.md`)의 최신 서식·구조 규칙을 그때그때 반영**해서 만든다(2026-08-23부터 2시트: 본부_회의록/전체_원본정리).
 - DRM 파일 읽기: `win32com.client.Dispatch("Excel.Application")` 사용 (사내 DRM 투명 복호화)
 - Google Sheets 읽기: `google-auth`, `google-api-python-client` 라이브러리 사용
 
@@ -77,6 +72,23 @@
 - 인증 토큰: `config/briefing_token.json`
 
 ---
+
+## 매체 매출 예측 / 목표 달성률 (`agent/revenue_forecast.py`)
+
+매체별 "이번 달 얼마 나올까", "목표 달성되나" 질문에 쓰는 공용 모듈.
+2026-09-27에 네이버 GFA 54개월(1,640일) 실측으로 설계·검증했다.
+
+```python
+from agent.revenue_forecast import RevenueForecaster, load_holidays, load_naver_series, format_report
+fc = RevenueForecaster(load_naver_series("GFA"), load_holidays())
+print(format_report(fc.forecast_month_end("2026-09", target=3_237_000_000)))
+print(RevenueForecaster.summarize_backtest(fc.backtest()))   # 새 매체엔 이 검증 먼저
+```
+
+- 데이터 캐시: `data/cache/forecast/`(gitignore 대상). 없으면 시트에서 자동 재수집.
+- 새 매체는 `pd.Series(index=날짜, value=일매출)`만 만들어 넘기면 된다.
+- **검증 없이 결과만 보고하지 말 것** — `backtest()`로 그 매체에서도 방법 선택이 맞는지 먼저 확인.
+- 상세 근거·함정은 메모리 `project_media_revenue_forecasting.md` 참고.
 
 ## 파워링크 키워드 제안서 앱 배포 규칙
 
