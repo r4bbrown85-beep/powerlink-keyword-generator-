@@ -13,6 +13,9 @@ r"""네이버 일단위 매출 트래킹 — 4213_실적상세 CSV 처리 공용
   테무     = 광고주명이 'Elementary Innovation Pte. Ltd' (뒤 마침표 유무 2종 혼재 → 정규화 필수)
 
 CSV 인코딩은 **cp949**이고 컬럼명 앞에 공백이 붙은 것이 많아 strip()이 필수다.
+같은 4213 리포트인데도 **DRM(SCDSA004)으로 감싸진 파일과 평문 파일이 섞여 있다**(2026-10-06 실측:
+09/30·10월분은 평문, 06~08월분과 09/29분은 DRM) → `read_4213_csv()`가 머리 8바이트를 보고
+DRM이면 Excel COM으로 평문 복사본을 떠서 읽는다. 직접 `pd.read_csv`를 부르지 말 것.
 
 사용:
     from agent.naver_daily_report import compute_from_csv, update_sheet, read_sheet_series
@@ -44,15 +47,98 @@ SH_COLS = ["쇼핑(내부/PC)", "쇼핑(내부/모바일)", "쇼핑(외부/PC)",
 TEMU = "elementary innovation pte. ltd"
 
 
-# ────────────────────────── CSV 집계 ──────────────────────────
+# ────────────────────────── CSV 읽기 ──────────────────────────
+ENCODINGS = ("cp949", "utf-8-sig", "utf-16")
+
+
+def _is_drm(path: str) -> bool:
+    with open(path, "rb") as f:
+        return f.read(8).startswith(b"SCDSA")
+
+
+NEED_COLS = (["날짜", "광고주명", "광고주ID", "광고계정 CustomerID"]
+             + GFA_COLS + PL_COLS + SH_COLS)
+
+
+def _read_via_excel(path: str, need=NEED_COLS) -> pd.DataFrame:
+    """DRM 래핑 CSV를 Excel COM으로 읽는다. **필요한 열만** 가져온다.
+
+    SaveAs로 평문 복사본을 뜨는 방법은 쓸 수 없다 — 사내 DRM이 저장 산출물을
+    SCDSA 컨테이너로 다시 감싸버려서 복사본도 평문이 아니다(2026-10-06 실측).
+    UsedRange 전체(6만행x65열)를 한 번에 끌어오면 과도하게 느리고 무거우므로
+    헤더로 열 위치를 찾아 필요한 열만 열 단위로 읽는다.
+    사용자가 열어둔 Excel 세션을 건드리지 않도록 DispatchEx 사용.
+    """
+    import win32com.client as w32
+    xl = w32.DispatchEx("Excel.Application")
+    xl.Visible = False
+    xl.DisplayAlerts = False
+    try:
+        wb = xl.Workbooks.Open(path, ReadOnly=True)
+        ws = wb.Worksheets(1)
+        used = ws.UsedRange
+        nrows, ncols = used.Rows.Count, used.Columns.Count
+        hdr = ws.Range(ws.Cells(1, 1), ws.Cells(1, ncols)).Value[0]
+        pos = {}
+        for j, h in enumerate(hdr, start=1):
+            if isinstance(h, str):
+                pos.setdefault(h.strip(), j)
+        missing = [c for c in need if c not in pos]
+        if missing:
+            raise KeyError(f"DRM CSV에 컬럼 없음: {missing}")
+        data = {}
+        for c in need:
+            j = pos[c]
+            col = ws.Range(ws.Cells(2, j), ws.Cells(nrows, j)).Value
+            data[c] = [r[0] for r in col]
+        wb.Close(False)
+    finally:
+        xl.Quit()
+    def _fmt_date(v):
+        """Excel COM이 돌려주는 pywintypes 날짜를 문자열로.
+
+        pd.to_datetime에 그대로 넘기면 tzinfo.utcoffset()이 None이라
+        'NoneType has no attribute total_seconds'로 터진다 — 직접 포맷한다.
+        """
+        if hasattr(v, "year"):
+            return f"{v.year:04d}-{v.month:02d}-{v.day:02d}"
+        return str(v)[:10]
+
+    data["날짜"] = [_fmt_date(v) for v in data["날짜"]]
+    return pd.DataFrame(data)
+
+
+def read_4213_csv(path: str) -> pd.DataFrame:
+    """4213_실적상세 CSV를 DRM 여부·인코딩에 관계없이 읽는다."""
+    if _is_drm(path):
+        return _read_via_excel(path)
+    last = None
+    for enc in ENCODINGS:
+        try:
+            df = pd.read_csv(path, encoding=enc, low_memory=False)
+            df.columns = [c.strip() for c in df.columns]
+            if "광고주명" in df.columns:
+                return df
+            last = f"컬럼 불일치({enc})"
+        except Exception as e:  # noqa: BLE001
+            last = f"{type(e).__name__}({enc})"
+    raise RuntimeError(f"CSV를 읽지 못했다: {path} — {last}")
+
+
+# ────────────────────────── 집계 ──────────────────────────
 def _norm_adv(s: str) -> str:
-    """광고주명 정규화 — 같은 광고주가 뒤 마침표 유무로 두 줄로 갈리는 사례가 있다."""
+    """광고주명 정규화.
+
+    테무(Elementary Innovation)는 광고계정 8개가 한 광고주명 아래 있는데
+    `Pte. Ltd.`(마침표 有, SA 6계정 + GFA 소액 1계정)와 `Pte. Ltd`(마침표 無,
+    GFA 메인 계정)로 **계정 단위로 표기가 고정**돼 있다. 정규화 없이 문자열로
+    필터하면 어느 쪽을 골라도 한쪽이 통째로 빠진다(2026-10-06 실측).
+    """
     return re.sub(r"[.\s]+$", "", str(s).strip()).lower()
 
 
 def compute_from_csv(csv_path: str) -> dict:
-    df = pd.read_csv(csv_path, encoding="cp949", low_memory=False)
-    df.columns = [c.strip() for c in df.columns]
+    df = read_4213_csv(csv_path)
     for c in GFA_COLS + PL_COLS + SH_COLS:
         if c not in df.columns:
             raise KeyError(f"컬럼 없음: {c}")
