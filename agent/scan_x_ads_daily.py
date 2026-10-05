@@ -18,7 +18,7 @@ Claude Code 세션 안에서 겪었던 백그라운드 강제종료 이슈와 �
 수동으로 행을 넣거나 지워도 안전. 신규로 매출이 잡힌 계정은 각 블록 맨 밑에 추가하고, 버퍼가
 모자라면 그 자리에 행을 삽입해서 아래 블록을 통째로 밀어낸다.
 """
-import sys, os, json, time, re
+import sys, os, json, time, re, calendar
 from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
 
@@ -49,10 +49,15 @@ ACCOUNTS_PATH = r"C:/Users/Administrator/AppData/Local/Temp/x_ads_accounts.json"
 STORE_PATH = r"C:/Users/Administrator/Desktop/00. 클로드코드 생성물/네이버 GFA API/x_ads_daily_store.json"
 EXCEL_OUT = r"C:/Users/Administrator/Desktop/00. 클로드코드 생성물/네이버 GFA API/X_이번달_계정별_일단위_매출.xlsx"
 
-SHEET_ID = "1ZXkhrtGGFMCVzEP-PEBqra7mAcY0ob8FL_jWXL5KWIs"
-SHEET_TAB = "X일단위 매출 트래킹"
-WL_SHEET_TAB = "X일단위 매출 트래킹(화이트리스트 적용)"
+# 2026-10-01: X 트래킹 전용 스프레드시트(네이버 매출 현황과 같은 파일)로 이전, 매월 새 탭
+# 구조로 전환 - 더 이상 "26년 주간회의록" 시트의 고정 탭 2개(원본/화이트리스트)를 쓰지 않는다.
+# 화이트리스트 적용 탭 하나만 운영(2026-10-01 팀장 확정). 탭 이름은 x_tab_name()으로 매번 계산.
+SHEET_ID = "1V-gAyGok-H29rzXtvpE5UTFjhh-DYNbL6SW74dBrwNs"
 WHITELIST_PATH = r"C:/Users/Administrator/Desktop/00. 클로드코드 생성물/X API관련/x_invoiced_whitelist_2026_1to8.json"
+
+
+def x_tab_name(d):
+    return f"{d.month}월_X일단위 매출 트래킹(화이트리스트 적용)"
 TOKEN_PATH = os.path.join(BASE_DIR, "config", "briefing_token.json")
 # 스코프 하드코딩 금지 - briefing_token.json을 morning_briefing.py 등과 공유하므로
 # get_creds() 호출부에서 scopes 인자를 생략해 토큰 파일의 실제 스코프를 그대로 쓴다
@@ -106,6 +111,46 @@ def api_get(url, params, retry=5):
             continue
         return {"_error": True, "status": resp.status_code, "body": resp.text[:300]}
     return {"_error": True, "status": -1, "body": "재시도 초과"}
+
+
+def refresh_accounts_list():
+    """X Ads API에서 접근 가능한 전체 계정 목록을 매번 다시 받아와 ACCOUNTS_PATH에 저장한다.
+    2026-09-08에 한 번 긁은 스냅샷을 그 뒤로 한 번도 갱신 안 하고 계속 재사용해온 게
+    발견되어(2026-10-01) 추가 - 9/8 이후 X 쪽에서 새로 Account Access를 열어준 계정은
+    지금까지 전부 사각지대였다. 목록 조회는 funding_instruments 547콜에 비해 가벼우니
+    매일 실행 때마다 갱신한다(월 1회가 아니라 매번 - 더 단순하고 더 안전)."""
+    url = "https://ads-api.x.com/12/accounts"
+    all_accounts = []
+    cursor = None
+    while True:
+        params = {"cursor": cursor} if cursor else {}
+        body = api_get(url, params)
+        if body.get("_error"):
+            raise RuntimeError(f"계정 목록 조회 실패: {body}")
+        all_accounts.extend(body.get("data", []))
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+
+    old_ids = set()
+    if os.path.exists(ACCOUNTS_PATH):
+        with open(ACCOUNTS_PATH, encoding="utf-8") as f:
+            old_ids = {a["id"] for a in json.load(f)}
+    new_ids = {a["id"] for a in all_accounts}
+    added, removed = new_ids - old_ids, old_ids - new_ids
+
+    with open(ACCOUNTS_PATH, "w", encoding="utf-8") as f:
+        json.dump(all_accounts, f, ensure_ascii=False, indent=2)
+
+    if added or removed:
+        log(f"계정 목록 갱신: {len(all_accounts)}개 (신규 +{len(added)}개, 제외 -{len(removed)}개)")
+        if added:
+            added_names = {a["id"]: a["name"] for a in all_accounts if a["id"] in added}
+            for aid in added:
+                log(f"  [신규 접근권한] {aid} {added_names.get(aid, '')}")
+    else:
+        log(f"계정 목록 갱신: {len(all_accounts)}개 (변동 없음)")
+    return all_accounts
 
 
 def get_active_funding_instruments(account_id):
@@ -179,17 +224,12 @@ def save_store_to(path, store):
 # ── 메인 ─────────────────────────────────────────────────
 def main():
     today = date.today()
-    month_start = today.replace(day=1)
     yesterday = today - timedelta(days=1)
-
-    if yesterday < month_start:
-        log("이번 달 확정 가능한 날짜가 아직 없음 (매월 1일 새벽엔 스킵)")
-        return
+    month_start = yesterday.replace(day=1)  # "어제" 기준 월 — 매월 1일 실행 시 전월 마지막날(어제)을 그 달 store로 정확히 반영하기 위함
 
     recheck_start = max(month_start, yesterday - timedelta(days=RECHECK_DAYS - 1))
 
-    with open(ACCOUNTS_PATH, encoding="utf-8") as f:
-        accounts = json.load(f)
+    accounts = refresh_accounts_list()
 
     store = load_store()
     cur_month_key = month_start.isoformat()
@@ -238,15 +278,14 @@ def main():
     svc = get_sheets_service()
     whitelist_ids = load_whitelist_ids()
 
-    cols_main = detect_columns(svc, SHEET_TAB)
-    n_existing_main = find_last_date_col(svc, SHEET_TAB, cols_main["first_date"])
-    missing_main = all_dates[n_existing_main:]
-    incremental_update_tab(svc, SHEET_TAB, store, all_dates, missing_main, cols_main)
-
-    cols_wl = detect_columns(svc, WL_SHEET_TAB)
-    n_existing_wl = find_last_date_col(svc, WL_SHEET_TAB, cols_wl["first_date"])
-    missing_wl = all_dates[n_existing_wl:]
-    incremental_update_tab(svc, WL_SHEET_TAB, store, all_dates, missing_wl, cols_wl, whitelist_ids=whitelist_ids)
+    sheet_tab, _ = ensure_month_tab(svc, month_start)
+    cols = detect_columns(svc, sheet_tab)
+    recheck_dates = []
+    d = recheck_start
+    while d <= yesterday:
+        recheck_dates.append(d)
+        d += timedelta(days=1)
+    update_fixed_grid_tab(svc, sheet_tab, store, all_dates, recheck_dates, cols, whitelist_ids=whitelist_ids)
 
     log("전체 완료")
 
@@ -385,39 +424,84 @@ def detect_columns(svc, sheet_tab, max_col=60):
     return cols
 
 
-def ensure_grid_width(svc, sheet_tab, needed_col_idx1, buffer=10):
-    """새로 쓰려는 열이 시트의 실제 그리드(물리적 열 개수)를 넘어서면 미리 넓힌다.
-    (2026-09-23: 그리드 한계를 넘겨 쓰려다 크래시난 사고 이후 도입 - 팀원이 매번
-    수동으로 열을 늘려주지 않아도 자동으로 안전하게 확장된다.)"""
+# ── 월별 탭 관리(2026-10-01 신규) ─────────────────────────
+# 날짜 열을 매일 하나씩 "추가"하던 예전 방식과 달리, 이제는 탭 하나에 그 달 전체
+# 날짜(1일~말일) 열이 처음부터 다 만들어져 있고 수식(F열 총계, 5행/USD서브토탈행 합계)도
+# 전부 미리 들어있다 - 팀장이 직접 만든 10월 탭 실측 확인. 그래서 스크립트는 더 이상 열을
+# 추가하지 않고, 정해진 날짜의 열 위치를 "그 달 n일째 = 첫날짜열 + (n-1)"로 바로 계산해서
+# 그 자리에 값만 쓴다.
+
+def ensure_month_tab(svc, month_start):
+    """해당 월의 탭이 있으면 그대로 쓰고, 없으면 바로 전월 탭을 복제해서 새로 만든다
+    (전월 탭의 서식·수식·상단 수동 박스 구조를 그대로 물려받음). 새 탭은 전월 탭
+    바로 왼쪽에 배치한다(2026-10-01 팀장 지시)."""
+    tab_name = x_tab_name(month_start)
+    meta = svc.spreadsheets().get(spreadsheetId=SHEET_ID, fields="sheets(properties(sheetId,title,index))").execute()
+    sheets = meta["sheets"]
+    existing = next((s for s in sheets if s["properties"]["title"] == tab_name), None)
+    if existing:
+        return tab_name, existing["properties"]["sheetId"]
+
+    prev_month = (month_start - timedelta(days=1)).replace(day=1)
+    prev_tab_name = x_tab_name(prev_month)
+    prev_sheet = next((s for s in sheets if s["properties"]["title"] == prev_tab_name), None)
+    if not prev_sheet:
+        raise RuntimeError(f"{tab_name} 탭이 없고, 복제할 전월 탭({prev_tab_name})도 못 찾음 - 수동으로 만들어야 함")
+
+    prev_sheet_id = prev_sheet["properties"]["sheetId"]
+    prev_index = prev_sheet["properties"]["index"]
+
+    dup_resp = svc.spreadsheets().batchUpdate(spreadsheetId=SHEET_ID, body={"requests": [
+        {"duplicateSheet": {"sourceSheetId": prev_sheet_id, "insertSheetIndex": prev_index, "newSheetName": tab_name}}
+    ]}).execute()
+    new_sheet_id = dup_resp["replies"][0]["duplicateSheet"]["properties"]["sheetId"]
+    log(f"신규 탭 생성: '{tab_name}' ('{prev_tab_name}' 복제, 그 왼쪽에 배치)")
+
+    _reset_month_tab_contents(svc, tab_name, month_start)
+    log(f"'{tab_name}': 계정 데이터·날짜 값 초기화 + 날짜 헤더를 {month_start.month}월 기준으로 재작성 완료 "
+        f"- 상단 1~3행 수동 박스(예약형 Takeover 등)는 전월 내용 그대로이니 월별 입력값 검토 필요")
+    return tab_name, new_sheet_id
+
+
+def _reset_month_tab_contents(svc, tab_name, month_start):
+    """복제 직후의 새 탭에서: 계정 데이터(ID/계정명/통화/화이트리스트)와 날짜별 값을 전부
+    지우고(=그 달 다시 새로 시작), 날짜 헤더(6행)와 제목(4행)만 새 달 기준으로 다시 쓴다.
+    F열(총계)·5행/USD서브토탈행 합계 수식은 복제본에 이미 있으므로 건드리지 않는다."""
+    cols = detect_columns(svc, tab_name)
+    layout = find_tab_layout(svc, tab_name, cols)
+    id_col = get_column_letter(cols["id"])
+    flag_col = get_column_letter(cols["flag"]) if cols.get("flag") else get_column_letter(cols["curr"])
+    first_date_col = get_column_letter(cols["first_date"])
+    last_date_col_idx1 = cols["first_date"] + 30  # 31일치까지 항상 확보(어느 달을 복제해왔든 다음 31일짜리 달도 안전하게)
+    last_date_col = get_column_letter(last_date_col_idx1)
+
+    # 복제해온 탭의 그리드가 31일치보다 좁으면(예: 28~30일짜리 달을 복제한 경우) 먼저 넓힌다
     meta = svc.spreadsheets().get(spreadsheetId=SHEET_ID, fields="sheets(properties(sheetId,title,gridProperties))").execute()
-    sheet = next(s for s in meta["sheets"] if s["properties"]["title"] == sheet_tab)
-    sheet_id = sheet["properties"]["sheetId"]
-    current = sheet["properties"]["gridProperties"].get("columnCount", 26)
-    if needed_col_idx1 > current:
-        add = needed_col_idx1 - current + buffer
+    sheet_meta = next(s for s in meta["sheets"] if s["properties"]["title"] == tab_name)
+    current_cols = sheet_meta["properties"]["gridProperties"].get("columnCount", 26)
+    if last_date_col_idx1 > current_cols:
+        add = last_date_col_idx1 - current_cols
         svc.spreadsheets().batchUpdate(spreadsheetId=SHEET_ID, body={"requests": [{
-            "appendDimension": {"sheetId": sheet_id, "dimension": "COLUMNS", "length": add}
+            "appendDimension": {"sheetId": sheet_meta["properties"]["sheetId"], "dimension": "COLUMNS", "length": add}
         }]}).execute()
-        log(f"{sheet_tab}: 그리드 열 부족 감지({current}열) - {add}열 추가 확장")
 
+    clear_ranges = [
+        f"'{tab_name}'!{id_col}{KRW_START}:{flag_col}{layout['last_krw_row']}",
+        f"'{tab_name}'!{id_col}{layout['usd_start_row']}:{flag_col}{layout['last_usd_row']}",
+        f"'{tab_name}'!{first_date_col}{KRW_START}:{last_date_col}{layout['last_krw_row']}",
+        f"'{tab_name}'!{first_date_col}{layout['usd_start_row']}:{last_date_col}{layout['last_usd_row']}",
+    ]
+    svc.spreadsheets().values().batchClear(spreadsheetId=SHEET_ID, body={"ranges": clear_ranges}).execute()
 
-# ── 증분 업데이트(2026-09-15 신규) ───────────────────────
-def find_last_date_col(svc, sheet_tab, first_date_col_idx1):
-    """헤더(6행)에서 이미 채워진 날짜 열 개수를 센다."""
-    first_col = get_column_letter(first_date_col_idx1)
-    last_col = get_column_letter(first_date_col_idx1 + 90)
-    resp = svc.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID, range=f"'{sheet_tab}'!{first_col}6:{last_col}6"
+    days_in_month = calendar.monthrange(month_start.year, month_start.month)[1]
+    header_data = [{"range": f"'{tab_name}'!B4", "values": [[f"● {month_start.month}월 X(트위터) 계정별 일단위 집행금액 트래킹"]]}]
+    for dd in range(1, 32):
+        col = get_column_letter(cols["first_date"] + dd - 1)
+        label = f"{month_start.month:02d}/{dd:02d}" if dd <= days_in_month else ""
+        header_data.append({"range": f"'{tab_name}'!{col}6", "values": [[label]]})
+    svc.spreadsheets().values().batchUpdate(
+        spreadsheetId=SHEET_ID, body={"valueInputOption": "RAW", "data": header_data}
     ).execute()
-    row = resp.get("values", [[]])
-    row = row[0] if row else []
-    n = 0
-    for v in row:
-        if v:
-            n += 1
-        else:
-            break
-    return n
 
 
 def find_tab_layout(svc, sheet_tab, cols):
@@ -583,14 +667,13 @@ def apply_whitelist_conditional_format(svc, sheet_tab, flag_col_idx1, krw_start,
     svc.spreadsheets().batchUpdate(spreadsheetId=SHEET_ID, body={"requests": requests_}).execute()
 
 
-def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols, whitelist_ids=None):
-    """기존 행/순서/색/참조명/대행사 표기 등은 전혀 건드리지 않고, missing_dates 만큼 날짜
-    열을 오른쪽에 추가한다. 신규로 매출이 잡힌 계정은 KRW/USD 각 블록 맨 밑에 추가하고
-    (모자라면 그 자리에 행 삽입), 계정 순서는 총액순 재정렬하지 않고 기존 그대로 유지한다
-    (2026-09-15, 팀장 지시로 '클리어 후 정렬 재작성' 방식 전면 폐기 -
-    [[project_x_ads_api_integration]])."""
-    if not missing_dates:
-        log(f"{sheet_tab}: 추가할 신규 날짜 없음")
+def update_fixed_grid_tab(svc, sheet_tab, store, all_dates, recheck_dates, cols, whitelist_ids=None):
+    """고정 그리드 탭(그 달 1~말일 날짜 열이 이미 다 만들어져 있고 F열 총계·5행/USD서브토탈행
+    합계 수식도 이미 들어있는 구조, 2026-10-01 신규)에 값만 쓴다. 날짜 열을 추가하지 않고
+    "그 달 n일째 = 첫날짜열 + (n-1)"로 열 위치를 바로 계산한다. 기존 행 순서·색·수식은 그대로
+    두고, 신규로 매출이 잡힌 계정만 KRW/USD 각 블록 맨 밑에 추가한다(모자라면 행 삽입)."""
+    if not recheck_dates:
+        log(f"{sheet_tab}: 갱신할 날짜 없음")
         return
 
     id_col = get_column_letter(cols["id"])
@@ -607,7 +690,6 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
     last_krw_row = layout["last_krw_row"]
     last_usd_row = layout["last_usd_row"]
     usd_subtotal_row = layout["usd_subtotal_row"]
-    usd_total_row = layout["usd_total_row"]
     usd_start_row = layout["usd_start_row"]
 
     tracked_krw_ids = set(krw_id_to_row)
@@ -626,6 +708,10 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
                 if acc_id not in tracked_usd_ids:
                     new_usd.append((acc_id, v["name"]))
 
+    month_ref = date.fromisoformat(all_dates[0]) if all_dates else date.today()
+    days_in_month = calendar.monthrange(month_ref.year, month_ref.month)[1]
+    last_date_col_idx1 = first_date_col_idx1 + days_in_month - 1
+
     # ---- KRW 신규 계정: 맨 밑에 추가, 버퍼 모자라면 그 자리에 행 삽입 ----
     if new_krw:
         available = usd_subtotal_row - (last_krw_row + 1)
@@ -634,11 +720,24 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
             insert_row_at = last_krw_row + 1 + available  # 현재 "<USD 운영계정>" 행 위치
             insert_rows(svc, sheet_tab, insert_row_at, need_insert)
             usd_subtotal_row += need_insert
-            usd_total_row += need_insert
             usd_start_row += need_insert
             usd_id_to_row = {k: r + need_insert for k, r in usd_id_to_row.items()}
             last_usd_row += need_insert
             log(f"{sheet_tab}: KRW 블록 버퍼 부족 - {need_insert}행 삽입(USD 블록 자동으로 아래로 밀림)")
+            # 삽입된 행은 템플릿 수식(F열 SUM)이 없으므로 직접 생성
+            insert_formula_data = [
+                {"range": f"'{sheet_tab}'!{total_col}{r}",
+                 "values": [[f"=SUM({get_column_letter(first_date_col_idx1)}{r}:{get_column_letter(last_date_col_idx1)}{r})"]]}
+                for r in range(insert_row_at, insert_row_at + need_insert)
+            ]
+            svc.spreadsheets().values().batchUpdate(
+                spreadsheetId=SHEET_ID, body={"valueInputOption": "USER_ENTERED", "data": insert_formula_data}
+            ).execute()
+            # 삽입된 행은 inheritFromBefore=False라 숫자 서식도 비어있음 - 날짜 전 구간에 천단위 서식 적용
+            apply_new_column_formatting(
+                svc, sheet_tab, first_date_col_idx1, last_date_col_idx1,
+                insert_row_at, insert_row_at + need_insert - 1, insert_row_at, insert_row_at - 1,
+            )
 
         data = []
         for i, (acc_id, name) in enumerate(new_krw):
@@ -646,10 +745,8 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
             data.append({"range": f"'{sheet_tab}'!{id_col}{row}", "values": [[acc_id]]})
             data.append({"range": f"'{sheet_tab}'!{name_col}{row}", "values": [[name]]})
             data.append({"range": f"'{sheet_tab}'!{curr_col}{row}", "values": [["KRW"]]})
-            data.append({"range": f"'{sheet_tab}'!{total_col}{row}",
-                         "values": [[f"=SUM({get_column_letter(first_date_col_idx1)}{row}:{row})"]]})
             if flag_col:
-                flag = "O" if acc_id in whitelist_ids else "X"
+                flag = "O" if whitelist_ids and acc_id in whitelist_ids else "X"
                 data.append({"range": f"'{sheet_tab}'!{flag_col}{row}", "values": [[flag]]})
             krw_id_to_row[acc_id] = row
         svc.spreadsheets().values().batchUpdate(
@@ -668,9 +765,9 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
             data.append({"range": f"'{sheet_tab}'!{name_col}{row}", "values": [[name]]})
             data.append({"range": f"'{sheet_tab}'!{curr_col}{row}", "values": [[cur]]})
             data.append({"range": f"'{sheet_tab}'!{total_col}{row}",
-                         "values": [[f"=SUM({get_column_letter(first_date_col_idx1)}{row}:{row})"]]})
+                         "values": [[f"=SUM({get_column_letter(first_date_col_idx1)}{row}:{get_column_letter(last_date_col_idx1)}{row})"]]})
             if flag_col:
-                flag = "O" if acc_id in whitelist_ids else "X"
+                flag = "O" if whitelist_ids and acc_id in whitelist_ids else "X"
                 data.append({"range": f"'{sheet_tab}'!{flag_col}{row}", "values": [[flag]]})
             usd_id_to_row[acc_id] = row
         svc.spreadsheets().values().batchUpdate(
@@ -679,66 +776,26 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
         last_usd_row += len(new_usd)
         log(f"{sheet_tab}: 신규 USD 계정 {len(new_usd)}개 추가")
 
-    # ---- 날짜 열 추가 (기존 열은 절대 안 건드림) ----
-    # RAW(헤더 라벨·숫자값)와 USER_ENTERED(수식)를 분리 - 한 번에 USER_ENTERED로 쓰면
-    # "09/03" 같은 날짜꼴 헤더 문자열이 실제 날짜 시리얼값으로 자동 파싱돼버리기 때문
-    # (드라이런 테스트 중 실제로 재현됨, 원본 코드가 원래도 조심했던 문제).
-    n_existing_dates = find_last_date_col(svc, sheet_tab, first_date_col_idx1)
-    last_new_col_idx1 = first_date_col_idx1 + n_existing_dates + len(missing_dates) - 1
-    ensure_grid_width(svc, sheet_tab, last_new_col_idx1)
+    # ---- 날짜별 값 쓰기 - 열은 이미 다 있으므로(그 달 n일째 = 첫날짜열+(n-1)) 값만 덮어씀.
+    # 헤더·합계 수식은 탭 생성 시점에 이미 들어있어 여기서 다시 안 건드린다.
     data_raw = []
-    data_formula = []
-    for j, d in enumerate(missing_dates):
-        col_idx1 = first_date_col_idx1 + n_existing_dates + j
-        col = get_column_letter(col_idx1)
-        label = d[5:].replace("-", "/")
-        data_raw.append({"range": f"'{sheet_tab}'!{col}6", "values": [[label]]})
+    for d in recheck_dates:
+        col = get_column_letter(first_date_col_idx1 + d.day - 1)
+        d_str = d.isoformat()
         for acc_id, row in krw_id_to_row.items():
-            val = account_value(store, acc_id, "KRW", d)
+            val = account_value(store, acc_id, "KRW", d_str)
             data_raw.append({"range": f"'{sheet_tab}'!{col}{row}", "values": [[val if val else ""]]})
         for acc_id, row in usd_id_to_row.items():
             cur = get_nonkrw_currency(store, acc_id)
-            val = account_value(store, acc_id, cur, d)
+            val = account_value(store, acc_id, cur, d_str)
             data_raw.append({"range": f"'{sheet_tab}'!{col}{row}", "values": [[val if val else ""]]})
-
-        if flag_col:
-            sum_formula = (f"=SUMPRODUCT(({flag_col}{KRW_START}:{flag_col}{last_krw_row}=\"O\")*"
-                            f"{col}{KRW_START}:{col}{last_krw_row})+{col}{usd_subtotal_row}")
-            usd_sub_formula = (f"=SUMPRODUCT(({flag_col}{usd_start_row}:{flag_col}{last_usd_row}=\"O\")*"
-                                f"{col}{usd_start_row}:{col}{last_usd_row})*{USD_KRW_RATE}")
-        else:
-            sum_formula = f"=SUM({col}{KRW_START}:{col}{last_krw_row})+{col}{usd_subtotal_row}"
-            usd_sub_formula = f"=SUM({col}{usd_start_row}:{col}{last_usd_row})*{USD_KRW_RATE}"
-        data_formula.append({"range": f"'{sheet_tab}'!{col}5", "values": [[sum_formula]]})
-        data_formula.append({"range": f"'{sheet_tab}'!{col}{usd_subtotal_row}", "values": [[usd_sub_formula]]})
-
-    svc.spreadsheets().values().batchUpdate(
-        spreadsheetId=SHEET_ID, body={"valueInputOption": "RAW", "data": data_raw}
-    ).execute()
-    svc.spreadsheets().values().batchUpdate(
-        spreadsheetId=SHEET_ID, body={"valueInputOption": "USER_ENTERED", "data": data_formula}
-    ).execute()
-
-    # ---- 총계(F열) 상단 합계 3종 - 항상 현재 경계 기준으로 다시 씀(자체 유지되는 수식) ----
-    if flag_col:
-        grand_total_formula = (f"=SUMPRODUCT(({flag_col}{KRW_START}:{flag_col}{last_krw_row}=\"O\")*"
-                                f"{total_col}{KRW_START}:{total_col}{last_krw_row})+{total_col}{usd_subtotal_row}")
-        usd_subtotal_f_formula = (f"=SUMPRODUCT(({flag_col}{usd_start_row}:{flag_col}{last_usd_row}=\"O\")*"
-                                   f"{total_col}{usd_start_row}:{total_col}{last_usd_row})*{USD_KRW_RATE}")
-        usd_total_f_formula = (f"=SUMPRODUCT(({flag_col}{usd_start_row}:{flag_col}{last_usd_row}=\"O\")*"
-                                f"{total_col}{usd_start_row}:{total_col}{last_usd_row})")
-    else:
-        grand_total_formula = f"=SUM({total_col}{KRW_START}:{total_col}{last_krw_row})+{total_col}{usd_subtotal_row}"
-        usd_subtotal_f_formula = f"=SUM({total_col}{usd_start_row}:{total_col}{last_usd_row})*{USD_KRW_RATE}"
-        usd_total_f_formula = f"=SUM({total_col}{usd_start_row}:{total_col}{last_usd_row})"
-    svc.spreadsheets().values().batchUpdate(spreadsheetId=SHEET_ID, body={"valueInputOption": "USER_ENTERED", "data": [
-        {"range": f"'{sheet_tab}'!{total_col}5", "values": [[grand_total_formula]]},
-        {"range": f"'{sheet_tab}'!{total_col}{usd_subtotal_row}", "values": [[usd_subtotal_f_formula]]},
-        {"range": f"'{sheet_tab}'!{total_col}{usd_total_row}", "values": [[usd_total_f_formula]]},
-    ]}).execute()
+    if data_raw:
+        svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEET_ID, body={"valueInputOption": "RAW", "data": data_raw}
+        ).execute()
 
     # ---- 일평균(G열) 전체 갱신 - 총계/날짜수 기반이라 매번 새로 계산해서 씀 ----
-    n_dates_now = n_existing_dates + len(missing_dates)
+    n_dates_now = len(all_dates)
     avg_data = []
     for acc_id, row in krw_id_to_row.items():
         total_cum = account_cum_total(store, acc_id, "KRW", all_dates)
@@ -752,16 +809,10 @@ def incremental_update_tab(svc, sheet_tab, store, all_dates, missing_dates, cols
             spreadsheetId=SHEET_ID, body={"valueInputOption": "RAW", "data": avg_data}
         ).execute()
 
-    apply_new_column_formatting(
-        svc, sheet_tab, first_date_col_idx1 + n_existing_dates,
-        first_date_col_idx1 + n_existing_dates + len(missing_dates) - 1,
-        KRW_START, last_krw_row, usd_start_row, last_usd_row,
-    )
-
-    if flag_col:
+    if flag_col and (new_krw or new_usd):
         apply_whitelist_conditional_format(svc, sheet_tab, cols["flag"], KRW_START, last_krw_row, usd_start_row, last_usd_row)
 
-    log(f"{sheet_tab}: {len(missing_dates)}개 날짜 열 추가 완료 ({missing_dates[0]}~{missing_dates[-1]}), "
+    log(f"{sheet_tab}: {len(recheck_dates)}일치 값 갱신 완료 ({recheck_dates[0].isoformat()}~{recheck_dates[-1].isoformat()}), "
         f"신규계정 KRW {len(new_krw)}개/USD {len(new_usd)}개")
 
 

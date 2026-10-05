@@ -12,17 +12,22 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+import httplib2
+import ssl
+
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 
 # ── 설정 ─────────────────────────────────────────────────
 TOKEN_PATH = Path('config/briefing_token.json')
-SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets.readonly',
-    'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/gmail.send',
-]
+# 스코프는 여기 하드코딩하지 않는다 — briefing_token.json을 여러 스크립트가 공유하는데
+# (morning_briefing.py, scan_x_ads_daily.py, minutes_review/*), 스크립트마다 스코프 목록을
+# 따로 들고 있으면 하나가 바뀔 때(예: 2026-09-10 쓰기권한 상향) 나머지가 불일치로 깨진다
+# (실제로 이 문제로 브리핑이 하루 크래시났음). get_creds()에서 scopes 인자를 생략해
+# 토큰 파일에 실제 저장된 스코프를 그대로 쓰도록 하여 이 클래스의 버그를 구조적으로 차단한다.
+# 스코프를 넓혀야 할 일이 생기면 auth_setup.py의 SCOPES만 고치고 재인증하면 전체에 반영된다.
 RECIPIENT  = 'r4bbrown85@gmail.com'
 SHEET_ID   = '1ZXkhrtGGFMCVzEP-PEBqra7mAcY0ob8FL_jWXL5KWIs'
 SHEET_TAB  = '26년 근무 일정'
@@ -38,7 +43,7 @@ def get_creds():
     if not TOKEN_PATH.exists():
         print('[오류] briefing_token.json 없음. auth_setup.py 먼저 실행하세요.')
         sys.exit(1)
-    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH), SCOPES)
+    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))  # scopes 생략 = 토큰 파일에 저장된 스코프 그대로 사용
     if creds.expired and creds.refresh_token:
         creds.refresh(Request())
         TOKEN_PATH.write_text(creds.to_json(), encoding='utf-8')
@@ -216,26 +221,27 @@ def build_html(today: datetime.date, cal_events: list[dict], sheet: dict) -> str
     else:
         cal_section = '<p style="color:#aaa;margin:4px 0;">캘린더 일정 없음</p>'
 
-    # Sheet — my schedule today
-    my_sched_today = ''
-    today_col = None
-    for col, d in date_map.items():
-        if d == today:
-            today_col = col
-            break
-
+    # Sheet — my schedule today (본인 일정 + 팀 전체 매체설명회/행사)
+    my_sched_items = []
     for name, schedules in week_data.items():
         if MY_NAME in name:
             sched = schedules.get(today, '')
-            if sched:
-                items = [s.strip() for s in sched.split('/') if s.strip()]
-                bullets = ''.join(
-                    f'<li style="padding:2px 0;">{html_badge(priority(it), it)}</li>'
-                    for it in items
-                )
-                my_sched_today = f'<ul style="margin:4px 0;padding-left:18px;">{bullets}</ul>'
+            my_sched_items.extend(s.strip() for s in sched.split('/') if s.strip())
             break
-    if not my_sched_today:
+
+    for name, schedules in week_data.items():
+        if '매체설명회' in name:
+            sched = schedules.get(today, '')
+            my_sched_items.extend(f'[매체/행사] {s.strip()}' for s in sched.split('/') if s.strip())
+            break
+
+    if my_sched_items:
+        bullets = ''.join(
+            f'<li style="padding:2px 0;">{html_badge(priority(it), it)}</li>'
+            for it in my_sched_items
+        )
+        my_sched_today = f'<ul style="margin:4px 0;padding-left:18px;">{bullets}</ul>'
+    else:
         my_sched_today = '<p style="color:#aaa;margin:4px 0;">시트 일정 없음</p>'
 
     # ── SECTION 2: 팀원 오늘 현황 ──────────────────────
@@ -365,7 +371,10 @@ def build_html(today: datetime.date, cal_events: list[dict], sheet: dict) -> str
 
 
 def send_gmail(creds, subject: str, html_body: str):
-    svc = build('gmail', 'v1', credentials=creds)
+    # 회사 네트워크 SSL 인스펙션 프록시 대응 — gmail.googleapis.com만 자체서명 인증서 검증 실패
+    http = httplib2.Http(disable_ssl_certificate_validation=True)
+    authorized_http = AuthorizedHttp(creds, http=http)
+    svc = build('gmail', 'v1', http=authorized_http)
     msg = MIMEMultipart('alternative')
     msg['To']      = RECIPIENT
     msg['From']    = RECIPIENT

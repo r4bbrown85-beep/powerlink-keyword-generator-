@@ -10,7 +10,7 @@ from pathlib import Path
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets.readonly',
+    'https://www.googleapis.com/auth/spreadsheets',  # 읽기+쓰기 (X 매출 자동 업로드용으로 상향, 2026-09-10)
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/gmail.send',
 ]
